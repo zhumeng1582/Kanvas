@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Kanvas app icon</title>
+  <desc id="desc">A cyan and coral candlestick chart rising across a deep navy field.</desc>
+  <rect width="512" height="512" rx="112" fill="#08131f"/>
+  <path d="M128 336c38-27 61-20 93-70 34-51 67-25 101-76 21-31 46-46 76-58" fill="none" stroke="#39e6d0" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#39e6d0">
+    <path d="M145 232h19v133h-19z"/><path d="M128 266h53v63h-53z"/>
+    <path d="M304 161h19v119h-19z"/><path d="M287 187h53v62h-53z"/>
+    <path d="M374 119h19v114h-19z"/><path d="M357 143h53v62h-53z"/>
+  </g>
+  <g fill="#ff6b6b">
+    <path d="M225 199h19v124h-19z"/><path d="M208 228h53v62h-53z"/>
+  </g>
+</svg>

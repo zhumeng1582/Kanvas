@@ -1,0 +1,986 @@
+public final class com/zhumeng/kanvas/core/AverageValueLine : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field ColumnName Ljava/lang/String;
+	public static final field INSTANCE Lcom/zhumeng/kanvas/core/AverageValueLine;
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+}
+
+public final class com/zhumeng/kanvas/core/BollingerBands : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public fun <init> ()V
+	public fun <init> (ID)V
+	public synthetic fun <init> (IDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getDeviation ()D
+	public final fun getPeriod ()I
+}
+
+public final class com/zhumeng/kanvas/core/EmptyIndicatorConfiguration : com/zhumeng/kanvas/core/IndicatorConfiguration {
+	public static final field INSTANCE Lcom/zhumeng/kanvas/core/EmptyIndicatorConfiguration;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/ExponentialMovingAverage : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field Companion Lcom/zhumeng/kanvas/core/ExponentialMovingAverage$Companion;
+	public fun <init> (I)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getPeriod ()I
+}
+
+public final class com/zhumeng/kanvas/core/ExponentialMovingAverage$Companion {
+	public final fun calculate (Lcom/zhumeng/kanvas/core/KlineSeries;I)[D
+}
+
+public final class com/zhumeng/kanvas/core/ExponentialMovingAverages : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public fun <init> (Ljava/lang/Iterable;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+}
+
+public final class com/zhumeng/kanvas/core/IndexRange {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndexRange$Companion;
+	public fun <init> (II)V
+	public final fun clampTo (I)Lcom/zhumeng/kanvas/core/IndexRange;
+	public final fun component1 ()I
+	public final fun component2 ()I
+	public final fun contains (I)Z
+	public final fun copy (II)Lcom/zhumeng/kanvas/core/IndexRange;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndexRange;IIILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndexRange;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getEndExclusive ()I
+	public final fun getLength ()I
+	public final fun getStartInclusive ()I
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndexRange$Companion {
+	public final fun getEmpty ()Lcom/zhumeng/kanvas/core/IndexRange;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorCalculationInput {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndicatorOutput;Lcom/zhumeng/kanvas/core/KlineComputeMode;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndicatorOutput;Lcom/zhumeng/kanvas/core/KlineComputeMode;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun component3 ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun component4 ()Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun component5 ()Lcom/zhumeng/kanvas/core/KlineComputeMode;
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndicatorOutput;Lcom/zhumeng/kanvas/core/KlineComputeMode;)Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndicatorOutput;Lcom/zhumeng/kanvas/core/KlineComputeMode;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getComputeMode ()Lcom/zhumeng/kanvas/core/KlineComputeMode;
+	public final fun getDefinition ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public final fun getPreviousOutput ()Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getPreviousSeries ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun getSeries ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/zhumeng/kanvas/core/IndicatorCalculator {
+	public abstract fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorColumn {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorColumn$Companion;
+	public final fun asList ()Ljava/util/List;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun get (I)D
+	public final fun getName ()Ljava/lang/String;
+	public final fun getSize ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorColumn$Companion {
+	public final fun of (Ljava/lang/String;Ljava/lang/Iterable;)Lcom/zhumeng/kanvas/core/IndicatorColumn;
+	public final fun of (Ljava/lang/String;[D)Lcom/zhumeng/kanvas/core/IndicatorColumn;
+}
+
+public abstract interface class com/zhumeng/kanvas/core/IndicatorConfiguration {
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorDefinition {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;Lcom/zhumeng/kanvas/core/IndicatorPlacement;IZZLcom/zhumeng/kanvas/core/IndicatorPaintMode;Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;Lcom/zhumeng/kanvas/core/IndicatorParameters;Lcom/zhumeng/kanvas/core/IndicatorCalculator;Lcom/zhumeng/kanvas/core/IndicatorConfiguration;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;Lcom/zhumeng/kanvas/core/IndicatorPlacement;IZZLcom/zhumeng/kanvas/core/IndicatorPaintMode;Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;Lcom/zhumeng/kanvas/core/IndicatorParameters;Lcom/zhumeng/kanvas/core/IndicatorCalculator;Lcom/zhumeng/kanvas/core/IndicatorConfiguration;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun component10 ()Lcom/zhumeng/kanvas/core/IndicatorConfiguration;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/IndicatorPlacement;
+	public final fun component3 ()I
+	public final fun component4 ()Z
+	public final fun component5 ()Z
+	public final fun component6 ()Lcom/zhumeng/kanvas/core/IndicatorPaintMode;
+	public final fun component7 ()Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;
+	public final fun component8 ()Lcom/zhumeng/kanvas/core/IndicatorParameters;
+	public final fun component9 ()Lcom/zhumeng/kanvas/core/IndicatorCalculator;
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorKey;Lcom/zhumeng/kanvas/core/IndicatorPlacement;IZZLcom/zhumeng/kanvas/core/IndicatorPaintMode;Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;Lcom/zhumeng/kanvas/core/IndicatorParameters;Lcom/zhumeng/kanvas/core/IndicatorCalculator;Lcom/zhumeng/kanvas/core/IndicatorConfiguration;)Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/IndicatorKey;Lcom/zhumeng/kanvas/core/IndicatorPlacement;IZZLcom/zhumeng/kanvas/core/IndicatorPaintMode;Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;Lcom/zhumeng/kanvas/core/IndicatorParameters;Lcom/zhumeng/kanvas/core/IndicatorCalculator;Lcom/zhumeng/kanvas/core/IndicatorConfiguration;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAutoActivate ()Z
+	public final fun getCalculator ()Lcom/zhumeng/kanvas/core/IndicatorCalculator;
+	public final fun getConfiguration ()Lcom/zhumeng/kanvas/core/IndicatorConfiguration;
+	public final fun getKeepAlive ()Z
+	public final fun getKey ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun getLayoutHint ()Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;
+	public final fun getPaintMode ()Lcom/zhumeng/kanvas/core/IndicatorPaintMode;
+	public final fun getParameters ()Lcom/zhumeng/kanvas/core/IndicatorParameters;
+	public final fun getPlacement ()Lcom/zhumeng/kanvas/core/IndicatorPlacement;
+	public final fun getZIndex ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorInsets {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorInsets$Companion;
+	public fun <init> ()V
+	public fun <init> (FFFF)V
+	public synthetic fun <init> (FFFFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun component4 ()F
+	public final fun copy (FFFF)Lcom/zhumeng/kanvas/core/IndicatorInsets;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorInsets;FFFFILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorInsets;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBottom ()F
+	public final fun getLeft ()F
+	public final fun getRight ()F
+	public final fun getTop ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorInsets$Companion {
+	public final fun getZero ()Lcom/zhumeng/kanvas/core/IndicatorInsets;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorKey {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorKey$Companion;
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKind;Ljava/lang/String;Ljava/lang/String;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKind;Ljava/lang/String;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getKind ()Lcom/zhumeng/kanvas/core/IndicatorKind;
+	public final fun getLabel ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorKey$Companion {
+	public final fun computed (Ljava/lang/String;Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public static synthetic fun computed$default (Lcom/zhumeng/kanvas/core/IndicatorKey$Companion;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun direct (Ljava/lang/String;Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public static synthetic fun direct$default (Lcom/zhumeng/kanvas/core/IndicatorKey$Companion;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun external (Ljava/lang/String;Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public static synthetic fun external$default (Lcom/zhumeng/kanvas/core/IndicatorKey$Companion;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorKey;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorKind : java/lang/Enum {
+	public static final field COMPUTED Lcom/zhumeng/kanvas/core/IndicatorKind;
+	public static final field DIRECT Lcom/zhumeng/kanvas/core/IndicatorKind;
+	public static final field EXTERNAL Lcom/zhumeng/kanvas/core/IndicatorKind;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorKind;
+	public static fun values ()[Lcom/zhumeng/kanvas/core/IndicatorKind;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorLayoutHint {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Float;Lcom/zhumeng/kanvas/core/IndicatorInsets;Ljava/lang/Float;Ljava/lang/Float;)V
+	public synthetic fun <init> (Ljava/lang/Float;Lcom/zhumeng/kanvas/core/IndicatorInsets;Ljava/lang/Float;Ljava/lang/Float;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/Float;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/IndicatorInsets;
+	public final fun component3 ()Ljava/lang/Float;
+	public final fun component4 ()Ljava/lang/Float;
+	public final fun copy (Ljava/lang/Float;Lcom/zhumeng/kanvas/core/IndicatorInsets;Ljava/lang/Float;Ljava/lang/Float;)Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;Ljava/lang/Float;Lcom/zhumeng/kanvas/core/IndicatorInsets;Ljava/lang/Float;Ljava/lang/Float;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorLayoutHint;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getHeight ()Ljava/lang/Float;
+	public final fun getMinHeight ()Ljava/lang/Float;
+	public final fun getPadding ()Lcom/zhumeng/kanvas/core/IndicatorInsets;
+	public final fun getPreferredHeight ()Ljava/lang/Float;
+	public final fun getResolvedHeight ()Ljava/lang/Float;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorOutput {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorOutput$Companion;
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;ILjava/util/List;Ljava/lang/Object;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun column (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorColumn;
+	public final fun columns ()Ljava/util/List;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getColumnNames ()Ljava/util/Set;
+	public final fun getKey ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun getSeriesSize ()I
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorOutput$Companion {
+	public final fun empty (Lcom/zhumeng/kanvas/core/IndicatorKey;I)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun of (Lcom/zhumeng/kanvas/core/IndicatorKey;ILjava/lang/Iterable;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorPaintMode : java/lang/Enum {
+	public static final field ALONE Lcom/zhumeng/kanvas/core/IndicatorPaintMode;
+	public static final field COMBINE Lcom/zhumeng/kanvas/core/IndicatorPaintMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorPaintMode;
+	public static fun values ()[Lcom/zhumeng/kanvas/core/IndicatorPaintMode;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorParameters {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorParameters$Companion;
+	public synthetic fun <init> (Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun asList ()Ljava/util/List;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun get (Ljava/lang/String;)Ljava/lang/String;
+	public final fun getSize ()I
+	public fun hashCode ()I
+	public final fun isEmpty ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorParameters$Companion {
+	public final fun getEmpty ()Lcom/zhumeng/kanvas/core/IndicatorParameters;
+	public final fun of (Ljava/lang/Iterable;)Lcom/zhumeng/kanvas/core/IndicatorParameters;
+	public final fun of (Ljava/util/Map;)Lcom/zhumeng/kanvas/core/IndicatorParameters;
+	public final fun of ([Lkotlin/Pair;)Lcom/zhumeng/kanvas/core/IndicatorParameters;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorParameters$Entry {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorParameters$Entry;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorParameters$Entry;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorParameters$Entry;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getName ()Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/zhumeng/kanvas/core/IndicatorPlacement {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorPlacement$Companion;
+	public static final field DefaultPaneId Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorPlacement$Companion {
+	public static final field DefaultPaneId Ljava/lang/String;
+	public final fun getSystemPaneIds ()Ljava/util/Set;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorPlacement$Main : com/zhumeng/kanvas/core/IndicatorPlacement {
+	public static final field INSTANCE Lcom/zhumeng/kanvas/core/IndicatorPlacement$Main;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorPlacement$Sub : com/zhumeng/kanvas/core/IndicatorPlacement {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorPlacement$Sub;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorPlacement$Sub;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorPlacement$Sub;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPaneId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistry {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorRegistry$Companion;
+	public static final field DefaultSubIndicatorCapacity I
+	public fun <init> ()V
+	public fun <init> (I)V
+	public synthetic fun <init> (IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun dispose ()Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun getEvents ()Lkotlinx/coroutines/flow/SharedFlow;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun hide (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun mount (Ljava/lang/Iterable;Ljava/lang/Iterable;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public static synthetic fun mount$default (Lcom/zhumeng/kanvas/core/IndicatorRegistry;Ljava/lang/Iterable;Ljava/lang/Iterable;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun notifySpecChanged (Lcom/zhumeng/kanvas/core/KlineSpec;)Ljava/util/List;
+	public static synthetic fun notifySpecChanged$default (Lcom/zhumeng/kanvas/core/IndicatorRegistry;Lcom/zhumeng/kanvas/core/KlineSpec;ILjava/lang/Object;)Ljava/util/List;
+	public final fun register (Lcom/zhumeng/kanvas/core/IndicatorDefinition;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun restoreActive (Ljava/lang/Iterable;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun show (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun snapshot ()Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun unregister (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun upsert (Lcom/zhumeng/kanvas/core/IndicatorDefinition;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistry$Companion {
+}
+
+public abstract interface class com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public abstract fun getGeneration ()J
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistryEvent$Activated : com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;J)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun component2 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorKey;J)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Activated;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Activated;Lcom/zhumeng/kanvas/core/IndicatorKey;JILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Activated;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getGeneration ()J
+	public final fun getKey ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistryEvent$Evicted : com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;ZJ)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun component2 ()Z
+	public final fun component3 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorKey;ZJ)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Evicted;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Evicted;Lcom/zhumeng/kanvas/core/IndicatorKey;ZJILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Evicted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getGeneration ()J
+	public final fun getKey ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun getRetained ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistryEvent$Hidden : com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;ZJ)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun component2 ()Z
+	public final fun component3 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorKey;ZJ)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Hidden;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Hidden;Lcom/zhumeng/kanvas/core/IndicatorKey;ZJILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Hidden;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getGeneration ()J
+	public final fun getKey ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun getRetained ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistryEvent$Registered : com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorDefinition;J)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public final fun component2 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorDefinition;J)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Registered;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Registered;Lcom/zhumeng/kanvas/core/IndicatorDefinition;JILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Registered;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefinition ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public fun getGeneration ()J
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistryEvent$SpecChanged : com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public fun <init> (Ljava/util/List;Lcom/zhumeng/kanvas/core/KlineSpec;J)V
+	public final fun component1 ()Ljava/util/List;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public final fun component3 ()J
+	public final fun copy (Ljava/util/List;Lcom/zhumeng/kanvas/core/KlineSpec;J)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$SpecChanged;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$SpecChanged;Ljava/util/List;Lcom/zhumeng/kanvas/core/KlineSpec;JILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$SpecChanged;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getGeneration ()J
+	public final fun getKeys ()Ljava/util/List;
+	public final fun getOldSpec ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistryEvent$Unregistered : com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;J)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public final fun component2 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorKey;J)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Unregistered;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Unregistered;Lcom/zhumeng/kanvas/core/IndicatorKey;JILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Unregistered;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun getGeneration ()J
+	public final fun getKey ()Lcom/zhumeng/kanvas/core/IndicatorKey;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistryEvent$Updated : com/zhumeng/kanvas/core/IndicatorRegistryEvent {
+	public fun <init> (Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/IndicatorDefinition;J)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public final fun component3 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/IndicatorDefinition;J)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Updated;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Updated;Lcom/zhumeng/kanvas/core/IndicatorDefinition;Lcom/zhumeng/kanvas/core/IndicatorDefinition;JILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistryEvent$Updated;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDefinition ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public fun getGeneration ()J
+	public final fun getPrevious ()Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRegistrySnapshot {
+	public final fun activeDefinitions ()Ljava/util/List;
+	public final fun activeMainDefinitions ()Ljava/util/List;
+	public final fun activeMainKeys ()Ljava/util/List;
+	public final fun activeSubDefinitions ()Ljava/util/List;
+	public final fun activeSubKeys ()Ljava/util/List;
+	public final fun calculationDefinitions ()Ljava/util/List;
+	public final fun definition (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorDefinition;
+	public final fun getGeneration ()J
+	public final fun getLatestSpecChangeOldSpec ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public final fun getMountEpoch ()J
+	public final fun getRegistryToken ()J
+	public final fun getSpecEpoch ()J
+	public final fun isActive (Lcom/zhumeng/kanvas/core/IndicatorKey;)Z
+	public final fun isRegistered (Lcom/zhumeng/kanvas/core/IndicatorKey;)Z
+	public final fun isRetained (Lcom/zhumeng/kanvas/core/IndicatorKey;)Z
+	public final fun registeredDefinitions ()Ljava/util/List;
+	public final fun retainedDefinitions ()Ljava/util/List;
+	public final fun retainedKeys ()Ljava/util/List;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRuntime {
+	public fun <init> ()V
+	public final fun calculate (Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;Lcom/zhumeng/kanvas/core/KlineComputeMode;)Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;
+	public final fun calculate (Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;Lcom/zhumeng/kanvas/core/KlineSeries;Ljava/lang/Iterable;Lcom/zhumeng/kanvas/core/KlineComputeMode;)Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;
+	public final fun calculate (Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;Ljava/lang/Iterable;Lcom/zhumeng/kanvas/core/KlineComputeMode;)Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;
+	public static synthetic fun calculate$default (Lcom/zhumeng/kanvas/core/IndicatorRuntime;Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;Lcom/zhumeng/kanvas/core/KlineComputeMode;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;
+	public static synthetic fun calculate$default (Lcom/zhumeng/kanvas/core/IndicatorRuntime;Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;Lcom/zhumeng/kanvas/core/KlineSeries;Ljava/lang/Iterable;Lcom/zhumeng/kanvas/core/KlineComputeMode;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;
+	public static synthetic fun calculate$default (Lcom/zhumeng/kanvas/core/IndicatorRuntime;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;Ljava/lang/Iterable;Lcom/zhumeng/kanvas/core/KlineComputeMode;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRuntimeCoordinator : java/lang/AutoCloseable {
+	public fun <init> (Lcom/zhumeng/kanvas/core/KlineController;Lcom/zhumeng/kanvas/core/IndicatorRegistry;Lkotlinx/coroutines/CoroutineScope;Lcom/zhumeng/kanvas/core/IndicatorRuntime;Lcom/zhumeng/kanvas/core/KlineComputeMode;Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function1;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/KlineController;Lcom/zhumeng/kanvas/core/IndicatorRegistry;Lkotlinx/coroutines/CoroutineScope;Lcom/zhumeng/kanvas/core/IndicatorRuntime;Lcom/zhumeng/kanvas/core/KlineComputeMode;Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun close ()V
+	public final fun getError ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getSnapshot ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun retry ()V
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRuntimeSnapshot {
+	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot$Companion;
+	public final fun definitions ()Ljava/util/List;
+	public final fun getComputeMode ()Lcom/zhumeng/kanvas/core/KlineComputeMode;
+	public final fun getRegistryGeneration ()Ljava/lang/Long;
+	public final fun getRegistryToken ()Ljava/lang/Long;
+	public final fun getSeries ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun getSourceRevision ()Ljava/lang/Long;
+	public final fun matches (Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;)Z
+	public final fun matches (Lcom/zhumeng/kanvas/core/KlineUiState;)Z
+	public final fun matches (Lcom/zhumeng/kanvas/core/KlineUiState;Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;)Z
+	public final fun output (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun outputs ()Ljava/util/List;
+}
+
+public final class com/zhumeng/kanvas/core/IndicatorRuntimeSnapshot$Companion {
+}
+
+public final class com/zhumeng/kanvas/core/Kdj : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public fun <init> ()V
+	public fun <init> (III)V
+	public synthetic fun <init> (IIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getDSmoothing ()I
+	public final fun getPeriod ()I
+	public final fun getSmoothing ()I
+}
+
+public final class com/zhumeng/kanvas/core/KlineCandle {
+	public static final field Companion Lcom/zhumeng/kanvas/core/KlineCandle$Companion;
+	public fun <init> (JDDDDDLjava/lang/Double;Ljava/lang/Integer;ZLcom/zhumeng/kanvas/core/KlineExactCandleValues;)V
+	public synthetic fun <init> (JDDDDDLjava/lang/Double;Ljava/lang/Integer;ZLcom/zhumeng/kanvas/core/KlineExactCandleValues;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()J
+	public final fun component10 ()Lcom/zhumeng/kanvas/core/KlineExactCandleValues;
+	public final fun component2 ()D
+	public final fun component3 ()D
+	public final fun component4 ()D
+	public final fun component5 ()D
+	public final fun component6 ()D
+	public final fun component7 ()Ljava/lang/Double;
+	public final fun component8 ()Ljava/lang/Integer;
+	public final fun component9 ()Z
+	public final fun copy (JDDDDDLjava/lang/Double;Ljava/lang/Integer;ZLcom/zhumeng/kanvas/core/KlineExactCandleValues;)Lcom/zhumeng/kanvas/core/KlineCandle;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineCandle;JDDDDDLjava/lang/Double;Ljava/lang/Integer;ZLcom/zhumeng/kanvas/core/KlineExactCandleValues;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineCandle;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun exactClose ()Ljava/math/BigDecimal;
+	public final fun exactHigh ()Ljava/math/BigDecimal;
+	public final fun exactLow ()Ljava/math/BigDecimal;
+	public final fun exactOpen ()Ljava/math/BigDecimal;
+	public final fun exactTurnover ()Ljava/math/BigDecimal;
+	public final fun exactVolume ()Ljava/math/BigDecimal;
+	public final fun getClose ()D
+	public final fun getConfirmed ()Z
+	public final fun getExactValues ()Lcom/zhumeng/kanvas/core/KlineExactCandleValues;
+	public final fun getHigh ()D
+	public final fun getLow ()D
+	public final fun getOpen ()D
+	public final fun getTimestampMillis ()J
+	public final fun getTradeCount ()Ljava/lang/Integer;
+	public final fun getTurnover ()Ljava/lang/Double;
+	public final fun getVolume ()D
+	public fun hashCode ()I
+	public final fun isRenderable ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineCandle$Companion {
+	public final fun accurate (JLjava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/lang/Integer;Z)Lcom/zhumeng/kanvas/core/KlineCandle;
+	public static synthetic fun accurate$default (Lcom/zhumeng/kanvas/core/KlineCandle$Companion;JLjava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/lang/Integer;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineCandle;
+}
+
+public final class com/zhumeng/kanvas/core/KlineComputeMode : java/lang/Enum {
+	public static final field Accurate Lcom/zhumeng/kanvas/core/KlineComputeMode;
+	public static final field Fast Lcom/zhumeng/kanvas/core/KlineComputeMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineComputeMode;
+	public static fun values ()[Lcom/zhumeng/kanvas/core/KlineComputeMode;
+}
+
+public final class com/zhumeng/kanvas/core/KlineController {
+	public static final field Companion Lcom/zhumeng/kanvas/core/KlineController$Companion;
+	public static final field DefaultCacheCapacity I
+	public fun <init> ()V
+	public fun <init> (ILcom/zhumeng/kanvas/core/KlineViewport;)V
+	public synthetic fun <init> (ILcom/zhumeng/kanvas/core/KlineViewport;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun animateMoveToDateTime (JIJLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun animateMoveToDateTime$default (Lcom/zhumeng/kanvas/core/KlineController;JIJLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public final fun cachedSpecKeys ()Ljava/util/List;
+	public final fun clearCache ()V
+	public final fun clearLoading ()Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun completeLoadMore (JLjava/util/List;Z)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public static synthetic fun completeLoadMore$default (Lcom/zhumeng/kanvas/core/KlineController;JLjava/util/List;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun evictCache (Lcom/zhumeng/kanvas/core/KlineSpec;)Z
+	public final fun evictCache (Ljava/lang/String;)Z
+	public final fun failLoadMore (JLjava/lang/String;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun getEvents ()Lkotlinx/coroutines/flow/SharedFlow;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun markLoadingMore (Ljava/lang/Long;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public static synthetic fun markLoadingMore$default (Lcom/zhumeng/kanvas/core/KlineController;Ljava/lang/Long;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun moveToDateTime (J)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun moveToInitialPosition ()Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun panBy (F)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun replaceAll (Lcom/zhumeng/kanvas/core/KlineSpec;Ljava/util/List;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun requestLoadMore (Z)Z
+	public static synthetic fun requestLoadMore$default (Lcom/zhumeng/kanvas/core/KlineController;ZILjava/lang/Object;)Z
+	public final fun resetLoadMoreAvailability ()Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun select (Lcom/zhumeng/kanvas/core/KlineSpec;ZZ)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public static synthetic fun select$default (Lcom/zhumeng/kanvas/core/KlineController;Lcom/zhumeng/kanvas/core/KlineSpec;ZZILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun updateLatest (Lcom/zhumeng/kanvas/core/KlineSpec;Lcom/zhumeng/kanvas/core/KlineCandle;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun updateViewport (Lcom/zhumeng/kanvas/core/KlineViewport;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun updateViewportConstraints (Lcom/zhumeng/kanvas/core/KlineViewportConstraints;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun viewportForDateTime (J)Lcom/zhumeng/kanvas/core/KlineViewport;
+}
+
+public final class com/zhumeng/kanvas/core/KlineController$Companion {
+}
+
+public final class com/zhumeng/kanvas/core/KlineDataDisposition : java/lang/Enum {
+	public static final field Applied Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public static final field CachedInactiveSpec Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public static final field IgnoredInactiveSpec Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public static final field IgnoredStaleLoadMore Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public static fun values ()[Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+}
+
+public final class com/zhumeng/kanvas/core/KlineDataResult {
+	public fun <init> (Lcom/zhumeng/kanvas/core/KlineDataDisposition;Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/KlineDataDisposition;Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;
+	public final fun copy (Lcom/zhumeng/kanvas/core/KlineDataDisposition;Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineDataResult;Lcom/zhumeng/kanvas/core/KlineDataDisposition;Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getDisposition ()Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public final fun getUpdate ()Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/zhumeng/kanvas/core/KlineEvent {
+}
+
+public final class com/zhumeng/kanvas/core/KlineEvent$LoadMore : com/zhumeng/kanvas/core/KlineEvent {
+	public fun <init> (Lcom/zhumeng/kanvas/core/KlineSpec;JJ)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/KlineSpec;JJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public final fun component2 ()J
+	public final fun component3 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/KlineSpec;JJ)Lcom/zhumeng/kanvas/core/KlineEvent$LoadMore;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineEvent$LoadMore;Lcom/zhumeng/kanvas/core/KlineSpec;JJILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineEvent$LoadMore;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBeforeTimestampMillis ()J
+	public final fun getRequestId ()J
+	public final fun getSpec ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineExactCandleValues {
+	public fun <init> (Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;)V
+	public synthetic fun <init> (Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/math/BigDecimal;
+	public final fun component2 ()Ljava/math/BigDecimal;
+	public final fun component3 ()Ljava/math/BigDecimal;
+	public final fun component4 ()Ljava/math/BigDecimal;
+	public final fun component5 ()Ljava/math/BigDecimal;
+	public final fun component6 ()Ljava/math/BigDecimal;
+	public final fun copy (Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;)Lcom/zhumeng/kanvas/core/KlineExactCandleValues;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineExactCandleValues;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;Ljava/math/BigDecimal;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineExactCandleValues;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getClose ()Ljava/math/BigDecimal;
+	public final fun getHigh ()Ljava/math/BigDecimal;
+	public final fun getLow ()Ljava/math/BigDecimal;
+	public final fun getOpen ()Ljava/math/BigDecimal;
+	public final fun getTurnover ()Ljava/math/BigDecimal;
+	public final fun getVolume ()Ljava/math/BigDecimal;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy : java/lang/Enum {
+	public static final field EveryTick Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;
+	public static final field OnCandleBoundary Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;
+	public static fun values ()[Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;
+}
+
+public final class com/zhumeng/kanvas/core/KlineInterval {
+	public static final field Companion Lcom/zhumeng/kanvas/core/KlineInterval$Companion;
+	public fun <init> (ILcom/zhumeng/kanvas/core/KlineTimeUnit;)V
+	public final fun component1 ()I
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public final fun copy (ILcom/zhumeng/kanvas/core/KlineTimeUnit;)Lcom/zhumeng/kanvas/core/KlineInterval;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineInterval;ILcom/zhumeng/kanvas/core/KlineTimeUnit;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineInterval;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getApproximateDurationMillis ()J
+	public final fun getDebugLabel ()Ljava/lang/String;
+	public final fun getMultiplier ()I
+	public final fun getUnit ()Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public fun hashCode ()I
+	public final fun isValid ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineInterval$Companion {
+	public final fun getInvalid ()Lcom/zhumeng/kanvas/core/KlineInterval;
+}
+
+public final class com/zhumeng/kanvas/core/KlineLoadingState : java/lang/Enum {
+	public static final field InitLoading Lcom/zhumeng/kanvas/core/KlineLoadingState;
+	public static final field LoadMore Lcom/zhumeng/kanvas/core/KlineLoadingState;
+	public static final field LoadingMore Lcom/zhumeng/kanvas/core/KlineLoadingState;
+	public static final field None Lcom/zhumeng/kanvas/core/KlineLoadingState;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun getShowLoading ()Z
+	public final fun isLoadMore ()Z
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineLoadingState;
+	public static fun values ()[Lcom/zhumeng/kanvas/core/KlineLoadingState;
+}
+
+public final class com/zhumeng/kanvas/core/KlineSeries {
+	public static final field Companion Lcom/zhumeng/kanvas/core/KlineSeries$Companion;
+	public synthetic fun <init> (Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun appendOlder (Ljava/util/List;)Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;
+	public final fun fractionalIndexToTimestamp (D)Ljava/lang/Long;
+	public final fun get (I)Lcom/zhumeng/kanvas/core/KlineCandle;
+	public final fun getCandles ()Ljava/util/List;
+	public final fun getLatest ()Lcom/zhumeng/kanvas/core/KlineCandle;
+	public final fun getOldest ()Lcom/zhumeng/kanvas/core/KlineCandle;
+	public final fun getSize ()I
+	public final fun indexAtOrBefore (J)Ljava/lang/Integer;
+	public final fun isEmpty ()Z
+	public final fun timestampToFractionalIndex (J)Ljava/lang/Double;
+	public final fun updateLatest (Lcom/zhumeng/kanvas/core/KlineCandle;)Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;
+}
+
+public final class com/zhumeng/kanvas/core/KlineSeries$Companion {
+	public final fun getEmpty ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun of (Ljava/util/List;)Lcom/zhumeng/kanvas/core/KlineSeries;
+}
+
+public final class com/zhumeng/kanvas/core/KlineSeriesUpdateResult {
+	public fun <init> (Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndexRange;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/IndexRange;
+	public final fun copy (Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndexRange;)Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/IndexRange;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getChanged ()Z
+	public final fun getChangedRange ()Lcom/zhumeng/kanvas/core/IndexRange;
+	public final fun getSeries ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineSpec {
+	public static final field Companion Lcom/zhumeng/kanvas/core/KlineSpec$Companion;
+	public static final field DefaultLimit I
+	public static final field DefaultPrecision I
+	public fun <init> (Ljava/lang/String;Lcom/zhumeng/kanvas/core/KlineInterval;IILjava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Lcom/zhumeng/kanvas/core/KlineInterval;IILjava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun copy (Ljava/lang/String;Lcom/zhumeng/kanvas/core/KlineInterval;IILjava/lang/Long;Ljava/lang/Long;Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineSpec;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineSpec;Ljava/lang/String;Lcom/zhumeng/kanvas/core/KlineInterval;IILjava/lang/Long;Ljava/lang/Long;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineSpec;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getFromMillis ()Ljava/lang/Long;
+	public final fun getInterval ()Lcom/zhumeng/kanvas/core/KlineInterval;
+	public final fun getKey ()Ljava/lang/String;
+	public final fun getLabel ()Ljava/lang/String;
+	public final fun getLimit ()I
+	public final fun getPrecision ()I
+	public final fun getRangeKey ()Ljava/lang/String;
+	public final fun getSymbol ()Ljava/lang/String;
+	public final fun getToMillis ()Ljava/lang/Long;
+	public fun hashCode ()I
+	public final fun initial ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineSpec$Companion {
+}
+
+public final class com/zhumeng/kanvas/core/KlineTimeUnit : java/lang/Enum {
+	public static final field Companion Lcom/zhumeng/kanvas/core/KlineTimeUnit$Companion;
+	public static final field Day Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Hour Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Microsecond Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Millisecond Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Minute Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Month Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Second Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Week Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static final field Year Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public final fun getApproximateMillis ()J
+	public final fun getCode ()Ljava/lang/String;
+	public final fun getDebugSuffix ()Ljava/lang/String;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+	public static fun values ()[Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+}
+
+public final class com/zhumeng/kanvas/core/KlineTimeUnit$Companion {
+	public final fun fromCode (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineTimeUnit;
+}
+
+public final class com/zhumeng/kanvas/core/KlineUiState {
+	public fun <init> ()V
+	public fun <init> (Lcom/zhumeng/kanvas/core/KlineSpec;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineViewport;Lcom/zhumeng/kanvas/core/KlineViewportConstraints;Lcom/zhumeng/kanvas/core/KlineLoadingState;Ljava/lang/Long;Ljava/lang/String;ZJJ)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/KlineSpec;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineViewport;Lcom/zhumeng/kanvas/core/KlineViewportConstraints;Lcom/zhumeng/kanvas/core/KlineLoadingState;Ljava/lang/Long;Ljava/lang/String;ZJJILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public final fun component10 ()J
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun component3 ()Lcom/zhumeng/kanvas/core/KlineViewport;
+	public final fun component4 ()Lcom/zhumeng/kanvas/core/KlineViewportConstraints;
+	public final fun component5 ()Lcom/zhumeng/kanvas/core/KlineLoadingState;
+	public final fun component6 ()Ljava/lang/Long;
+	public final fun component7 ()Ljava/lang/String;
+	public final fun component8 ()Z
+	public final fun component9 ()J
+	public final fun copy (Lcom/zhumeng/kanvas/core/KlineSpec;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineViewport;Lcom/zhumeng/kanvas/core/KlineViewportConstraints;Lcom/zhumeng/kanvas/core/KlineLoadingState;Ljava/lang/Long;Ljava/lang/String;ZJJ)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineUiState;Lcom/zhumeng/kanvas/core/KlineSpec;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineViewport;Lcom/zhumeng/kanvas/core/KlineViewportConstraints;Lcom/zhumeng/kanvas/core/KlineLoadingState;Ljava/lang/Long;Ljava/lang/String;ZJJILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getCanLoadMoreOlder ()Z
+	public final fun getInteractionEpoch ()J
+	public final fun getLoadMoreError ()Ljava/lang/String;
+	public final fun getLoadMoreRequestId ()Ljava/lang/Long;
+	public final fun getLoadingState ()Lcom/zhumeng/kanvas/core/KlineLoadingState;
+	public final fun getRevision ()J
+	public final fun getSeries ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun getSpec ()Lcom/zhumeng/kanvas/core/KlineSpec;
+	public final fun getViewport ()Lcom/zhumeng/kanvas/core/KlineViewport;
+	public final fun getViewportConstraints ()Lcom/zhumeng/kanvas/core/KlineViewportConstraints;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineViewport {
+	public fun <init> ()V
+	public fun <init> (FFF)V
+	public synthetic fun <init> (FFFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun copy (FFF)Lcom/zhumeng/kanvas/core/KlineViewport;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineViewport;FFFILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineViewport;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun fractionalIndexAt (FF)D
+	public final fun getCandleHalfStepPx ()F
+	public final fun getCandleSpacingPx ()F
+	public final fun getCandleStepPx ()F
+	public final fun getCandleWidthPx ()F
+	public final fun getRightEdgeOffsetPx ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+	public final fun xForIndex (FD)F
+}
+
+public final class com/zhumeng/kanvas/core/KlineViewportBounds {
+	public fun <init> (FFF)V
+	public final fun clamp (F)F
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun copy (FFF)Lcom/zhumeng/kanvas/core/KlineViewportBounds;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineViewportBounds;FFFILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineViewportBounds;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getInitialOffsetPx ()F
+	public final fun getMaxOffsetPx ()F
+	public final fun getMinOffsetPx ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineViewportConstraints {
+	public fun <init> (FFFZ)V
+	public synthetic fun <init> (FFFZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun component4 ()Z
+	public final fun copy (FFFZ)Lcom/zhumeng/kanvas/core/KlineViewportConstraints;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/core/KlineViewportConstraints;FFFZILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineViewportConstraints;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlwaysCalculateScreenOfCandlesIfEnough ()Z
+	public final fun getFirstCandleInitialOffsetPx ()F
+	public final fun getMinPaintBlankRate ()F
+	public final fun getMinPaintBlankWidthPx ()F
+	public final fun getPlotWidthPx ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/KlineViewportMath {
+	public static final field INSTANCE Lcom/zhumeng/kanvas/core/KlineViewportMath;
+	public final fun bounds (ILcom/zhumeng/kanvas/core/KlineViewport;Lcom/zhumeng/kanvas/core/KlineViewportConstraints;)Lcom/zhumeng/kanvas/core/KlineViewportBounds;
+	public final fun offsetForCenteredIndex (DLcom/zhumeng/kanvas/core/KlineViewport;F)F
+	public final fun startCandleX (FLcom/zhumeng/kanvas/core/KlineViewport;)F
+	public final fun visibleRange (ILcom/zhumeng/kanvas/core/KlineViewport;Lcom/zhumeng/kanvas/core/KlineViewportConstraints;)Lcom/zhumeng/kanvas/core/IndexRange;
+}
+
+public final class com/zhumeng/kanvas/core/Macd : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public fun <init> ()V
+	public fun <init> (III)V
+	public synthetic fun <init> (IIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getFastPeriod ()I
+	public final fun getSignalPeriod ()I
+	public final fun getSlowPeriod ()I
+}
+
+public final class com/zhumeng/kanvas/core/MovingAverage : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field Companion Lcom/zhumeng/kanvas/core/MovingAverage$Companion;
+	public fun <init> (Ljava/lang/Iterable;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPeriods ()Ljava/util/List;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/MovingAverage$Companion {
+	public final fun columnName (I)Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/core/OnBalanceVolume : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field ColumnName Ljava/lang/String;
+	public static final field INSTANCE Lcom/zhumeng/kanvas/core/OnBalanceVolume;
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+}
+
+public final class com/zhumeng/kanvas/core/OnBalanceVolumeWithAverages : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Integer;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/Integer;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getEmaPeriod ()Ljava/lang/Integer;
+	public final fun getMaPeriod ()Ljava/lang/Integer;
+}
+
+public final class com/zhumeng/kanvas/core/ParabolicSar : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field ColumnName Ljava/lang/String;
+	public static final field Companion Lcom/zhumeng/kanvas/core/ParabolicSar$Companion;
+	public fun <init> ()V
+	public fun <init> (DD)V
+	public synthetic fun <init> (DDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getMaximum ()D
+	public final fun getStep ()D
+}
+
+public final class com/zhumeng/kanvas/core/ParabolicSar$Companion {
+}
+
+public final class com/zhumeng/kanvas/core/RelativeStrengthIndexes : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public fun <init> (Ljava/lang/Iterable;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getPeriods ()Ljava/util/List;
+}
+
+public final class com/zhumeng/kanvas/core/Rsi : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public fun <init> ()V
+	public fun <init> (I)V
+	public synthetic fun <init> (IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getPeriod ()I
+}
+
+public final class com/zhumeng/kanvas/core/StochasticRsi : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field Companion Lcom/zhumeng/kanvas/core/StochasticRsi$Companion;
+	public static final field DColumn Ljava/lang/String;
+	public static final field KColumn Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (IIII)V
+	public synthetic fun <init> (IIIIILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getDPeriod ()I
+	public final fun getKPeriod ()I
+	public final fun getRsiPeriod ()I
+	public final fun getStochasticPeriod ()I
+}
+
+public final class com/zhumeng/kanvas/core/StochasticRsi$Companion {
+}
+
+public final class com/zhumeng/kanvas/core/SuperTrend : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field ColumnName Ljava/lang/String;
+	public static final field Companion Lcom/zhumeng/kanvas/core/SuperTrend$Companion;
+	public static final field DownColumn Ljava/lang/String;
+	public static final field UpColumn Ljava/lang/String;
+	public fun <init> ()V
+	public fun <init> (ID)V
+	public synthetic fun <init> (IDILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getAtrPeriod ()I
+	public final fun getMultiplier ()D
+}
+
+public final class com/zhumeng/kanvas/core/SuperTrend$Companion {
+}
+
+public final class com/zhumeng/kanvas/core/Volume : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field ColumnName Ljava/lang/String;
+	public static final field INSTANCE Lcom/zhumeng/kanvas/core/Volume;
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+}
+
+public final class com/zhumeng/kanvas/core/WilliamsR : com/zhumeng/kanvas/core/IndicatorCalculator {
+	public static final field Companion Lcom/zhumeng/kanvas/core/WilliamsR$Companion;
+	public fun <init> ()V
+	public fun <init> (I)V
+	public synthetic fun <init> (IILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun calculate (Lcom/zhumeng/kanvas/core/IndicatorCalculationInput;)Lcom/zhumeng/kanvas/core/IndicatorOutput;
+	public final fun getPeriod ()I
+}
+
+public final class com/zhumeng/kanvas/core/WilliamsR$Companion {
+	public final fun columnName (I)Ljava/lang/String;
+}
+

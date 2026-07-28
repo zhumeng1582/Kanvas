@@ -1,0 +1,502 @@
+public final class com/zhumeng/kanvas/drawing/DrawingController {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun <init> (Lcom/zhumeng/kanvas/drawing/DrawingToolRegistry;Lcom/zhumeng/kanvas/drawing/DrawingOverlayStore;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/drawing/DrawingToolRegistry;Lcom/zhumeng/kanvas/drawing/DrawingOverlayStore;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun cancel ()V
+	public final fun confirmPoint (Lcom/zhumeng/kanvas/drawing/DrawingPoint;Z)Lcom/zhumeng/kanvas/drawing/DrawingState;
+	public static synthetic fun confirmPoint$default (Lcom/zhumeng/kanvas/drawing/DrawingController;Lcom/zhumeng/kanvas/drawing/DrawingPoint;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingState;
+	public final fun finishEditing ()V
+	public final fun finishOverlayMove ()V
+	public final fun finishPointMove ()V
+	public final fun getCanRedo ()Z
+	public final fun getCanUndo ()Z
+	public final fun getSnapshot ()Lcom/zhumeng/kanvas/drawing/DrawingSnapshot;
+	public final fun isSelectedOnBottom ()Z
+	public final fun isSelectedOnTop ()Z
+	public final fun moveSelectedBy (JD)Z
+	public final fun moveSelectedPoint (Lcom/zhumeng/kanvas/drawing/DrawingPoint;)Z
+	public final fun moveSelectedToBottom ()Z
+	public final fun moveSelectedToTop ()Z
+	public final fun persist ()V
+	public final fun prepare (Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;)Lcom/zhumeng/kanvas/drawing/DrawingOverlay;
+	public final fun prepare (Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;)Lcom/zhumeng/kanvas/drawing/DrawingOverlay;
+	public static synthetic fun prepare$default (Lcom/zhumeng/kanvas/drawing/DrawingController;Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;ILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingOverlay;
+	public final fun redo ()Z
+	public final fun removeAll ()V
+	public final fun removeSelected ()Z
+	public final fun select-9KIMszo (JLcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;F)Lcom/zhumeng/kanvas/drawing/DrawingOverlay;
+	public static synthetic fun select-9KIMszo$default (Lcom/zhumeng/kanvas/drawing/DrawingController;JLcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;FILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingOverlay;
+	public final fun selectPoint-9KIMszo (JLcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;F)Ljava/lang/Integer;
+	public static synthetic fun selectPoint-9KIMszo$default (Lcom/zhumeng/kanvas/drawing/DrawingController;JLcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;FILjava/lang/Object;)Ljava/lang/Integer;
+	public final fun setContinuous (Z)V
+	public final fun setMagnetMode (Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;)V
+	public final fun setSelectedLineStyle-oJZG2nU (Landroidx/compose/ui/graphics/Color;Ljava/lang/Float;Ljava/lang/String;)Z
+	public static synthetic fun setSelectedLineStyle-oJZG2nU$default (Lcom/zhumeng/kanvas/drawing/DrawingController;Landroidx/compose/ui/graphics/Color;Ljava/lang/Float;Ljava/lang/String;ILjava/lang/Object;)Z
+	public final fun setSelectedLocked (Z)Z
+	public final fun setVisible (Z)V
+	public final fun snap-M_7yMNQ (JLcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Ljava/util/List;F)Lcom/zhumeng/kanvas/drawing/DrawingPoint;
+	public static synthetic fun snap-M_7yMNQ$default (Lcom/zhumeng/kanvas/drawing/DrawingController;JLcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Ljava/util/List;FILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingPoint;
+	public final fun switchSymbol (Ljava/lang/String;Ljava/util/List;)V
+	public static synthetic fun switchSymbol$default (Lcom/zhumeng/kanvas/drawing/DrawingController;Ljava/lang/String;Ljava/util/List;ILjava/lang/Object;)V
+	public final fun toolFor (Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;)Lcom/zhumeng/kanvas/drawing/DrawingTool;
+	public final fun undo ()Z
+	public final fun updatePointer-_kEHs6E (Landroidx/compose/ui/geometry/Offset;)V
+	public final fun updateSelected (Lkotlin/jvm/functions/Function1;)Z
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingCoordinateSpace {
+	public static final field $stable I
+	public fun <init> (Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineViewport;Landroidx/compose/ui/geometry/Rect;DD)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun component2 ()Lcom/zhumeng/kanvas/core/KlineViewport;
+	public final fun component3 ()Landroidx/compose/ui/geometry/Rect;
+	public final fun component4 ()D
+	public final fun component5 ()D
+	public final fun copy (Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineViewport;Landroidx/compose/ui/geometry/Rect;DD)Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Lcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineViewport;Landroidx/compose/ui/geometry/Rect;DDILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getMaxValue ()D
+	public final fun getMinValue ()D
+	public final fun getPlotRect ()Landroidx/compose/ui/geometry/Rect;
+	public final fun getSeries ()Lcom/zhumeng/kanvas/core/KlineSeries;
+	public final fun getViewport ()Lcom/zhumeng/kanvas/core/KlineViewport;
+	public fun hashCode ()I
+	public final fun project-x-9fifI (Lcom/zhumeng/kanvas/drawing/DrawingPoint;)Landroidx/compose/ui/geometry/Offset;
+	public fun toString ()Ljava/lang/String;
+	public final fun unproject-k-4lQ0M (J)Lcom/zhumeng/kanvas/drawing/DrawingPoint;
+	public final fun valueToY (D)F
+	public final fun yToValue (F)D
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingLineStyle {
+	public static final field $stable I
+	public synthetic fun <init> (JFZFFLjava/lang/String;Ljava/lang/Float;Ljava/lang/String;Ljava/lang/String;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (JFZFFLjava/lang/String;Ljava/lang/Float;Ljava/lang/String;Ljava/lang/String;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-0d7_KjU ()J
+	public final fun component10 ()Z
+	public final fun component2 ()F
+	public final fun component3 ()Z
+	public final fun component4 ()F
+	public final fun component5 ()F
+	public final fun component6 ()Ljava/lang/String;
+	public final fun component7 ()Ljava/lang/Float;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun component9 ()Ljava/lang/String;
+	public final fun copy-Pd0R-II (JFZFFLjava/lang/String;Ljava/lang/Float;Ljava/lang/String;Ljava/lang/String;Z)Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public static synthetic fun copy-Pd0R-II$default (Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;JFZFFLjava/lang/String;Ljava/lang/Float;Ljava/lang/String;Ljava/lang/String;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBlendMode ()Ljava/lang/String;
+	public final fun getColor-0d7_KjU ()J
+	public final fun getDashOffPx ()F
+	public final fun getDashOnPx ()F
+	public final fun getDashed ()Z
+	public final fun getLengthPx ()Ljava/lang/Float;
+	public final fun getLineType ()Ljava/lang/String;
+	public final fun getPaintStyle ()Ljava/lang/String;
+	public final fun getStrokeWidthPx ()F
+	public fun hashCode ()I
+	public final fun isAntiAlias ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingMagnetMode : java/lang/Enum {
+	public static final field Normal Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public static final field Strong Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public static final field Weak Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public final fun next (Z)Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public static synthetic fun next$default (Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public static fun values ()[Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingMagnifierConfig {
+	public static final field $stable I
+	public synthetic fun <init> (ZJFFFFFFFFZFLandroidx/compose/ui/graphics/Color;FLjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (ZJFFFFFFFFZFLandroidx/compose/ui/graphics/Color;FLjava/lang/String;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component10 ()F
+	public final fun component11 ()Z
+	public final fun component12 ()F
+	public final fun component13-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun component14 ()F
+	public final fun component15 ()Ljava/lang/String;
+	public final fun component2-MYxV2XQ ()J
+	public final fun component3 ()F
+	public final fun component4-D9Ej5fM ()F
+	public final fun component5-D9Ej5fM ()F
+	public final fun component6 ()F
+	public final fun component7 ()F
+	public final fun component8 ()F
+	public final fun component9 ()F
+	public final fun copy-O5YSv70 (ZJFFFFFFFFZFLandroidx/compose/ui/graphics/Color;FLjava/lang/String;)Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;
+	public static synthetic fun copy-O5YSv70$default (Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;ZJFFFFFFFFZFLandroidx/compose/ui/graphics/Color;FLjava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBorderColor-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun getBorderStyle ()Ljava/lang/String;
+	public final fun getBorderWidthPx ()F
+	public final fun getClip ()Z
+	public final fun getCornerRadius-D9Ej5fM ()F
+	public final fun getDecorationOpacity ()F
+	public final fun getElevation-D9Ej5fM ()F
+	public final fun getEnabled ()Z
+	public final fun getMarginBottomPx ()F
+	public final fun getMarginLeftPx ()F
+	public final fun getMarginPx ()F
+	public final fun getMarginRightPx ()F
+	public final fun getMarginTopPx ()F
+	public final fun getSize-MYxV2XQ ()J
+	public final fun getZoom ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingOverlay {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Ljava/util/List;IZLcom/zhumeng/kanvas/drawing/DrawingLineStyle;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/String;Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Ljava/util/List;IZLcom/zhumeng/kanvas/drawing/DrawingLineStyle;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/String;
+	public final fun component3 ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun component4 ()Ljava/util/List;
+	public final fun component5 ()I
+	public final fun component6 ()Z
+	public final fun component7 ()Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public final fun component8 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;Ljava/lang/String;Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Ljava/util/List;IZLcom/zhumeng/kanvas/drawing/DrawingLineStyle;Ljava/lang/String;)Lcom/zhumeng/kanvas/drawing/DrawingOverlay;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Ljava/lang/String;Ljava/lang/String;Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Ljava/util/List;IZLcom/zhumeng/kanvas/drawing/DrawingLineStyle;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingOverlay;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public final fun getLine ()Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public final fun getLocked ()Z
+	public final fun getNextPointIndex ()I
+	public final fun getPoints ()Ljava/util/List;
+	public final fun getSourcePayload ()Ljava/lang/String;
+	public final fun getSymbol ()Ljava/lang/String;
+	public final fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun getZIndex ()I
+	public fun hashCode ()I
+	public final fun isComplete ()Z
+	public final fun isDrawing ()Z
+	public final fun isInitial ()Z
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/zhumeng/kanvas/drawing/DrawingOverlayStore {
+	public abstract fun save (Ljava/lang/String;Ljava/util/List;)V
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingPoint {
+	public static final field $stable I
+	public fun <init> (JD)V
+	public final fun component1 ()J
+	public final fun component2 ()D
+	public final fun copy (JD)Lcom/zhumeng/kanvas/drawing/DrawingPoint;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/drawing/DrawingPoint;JDILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingPoint;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getTimestampMillis ()J
+	public final fun getValue ()D
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingPointStyle {
+	public static final field $stable I
+	public synthetic fun <init> (FFLandroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/graphics/Color;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (FFLandroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/graphics/Color;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun component4 ()F
+	public final fun component5-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun copy-4Dq9Og4 (FFLandroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/graphics/Color;)Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;
+	public static synthetic fun copy-4Dq9Og4$default (Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;FFLandroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/graphics/Color;ILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBorderColor-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun getBorderWidthPx ()F
+	public final fun getColor-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun getRadiusPx ()F
+	public final fun getWidthPx ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingRenderConfig {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun <init> (ZZZFFLcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;FF)V
+	public synthetic fun <init> (ZZZFFLcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;FFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Z
+	public final fun component10 ()Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;
+	public final fun component11 ()F
+	public final fun component12 ()F
+	public final fun component2 ()Z
+	public final fun component3 ()Z
+	public final fun component4 ()F
+	public final fun component5 ()F
+	public final fun component6 ()Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;
+	public final fun component7 ()Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public final fun component8 ()Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public final fun component9 ()Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;
+	public final fun copy (ZZZFFLcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;FF)Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;ZZZFFLcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;FFILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAllowSelectWhenExited ()Z
+	public final fun getContinueDrawing ()Z
+	public final fun getCrossPoint ()Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;
+	public final fun getCrosshair ()Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public final fun getDrawLine ()Lcom/zhumeng/kanvas/drawing/DrawingLineStyle;
+	public final fun getDrawPoint ()Lcom/zhumeng/kanvas/drawing/DrawingPointStyle;
+	public final fun getEnabled ()Z
+	public final fun getHitTestDistancePx ()F
+	public final fun getMagnetDistancePx ()F
+	public final fun getTicksGapBackgroundOpacity ()F
+	public final fun getTicksSpacingPx ()F
+	public final fun getTicksText ()Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingSnapshot {
+	public static final field $stable I
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Lcom/zhumeng/kanvas/drawing/DrawingState;Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;Landroidx/compose/ui/geometry/Offset;ZZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;Lcom/zhumeng/kanvas/drawing/DrawingState;Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;Landroidx/compose/ui/geometry/Offset;ZZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/util/List;
+	public final fun component3 ()Lcom/zhumeng/kanvas/drawing/DrawingState;
+	public final fun component4 ()Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public final fun component5-_m7T9-E ()Landroidx/compose/ui/geometry/Offset;
+	public final fun component6 ()Z
+	public final fun component7 ()Z
+	public final fun copy-0lybdyQ (Ljava/lang/String;Ljava/util/List;Lcom/zhumeng/kanvas/drawing/DrawingState;Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;Landroidx/compose/ui/geometry/Offset;ZZ)Lcom/zhumeng/kanvas/drawing/DrawingSnapshot;
+	public static synthetic fun copy-0lybdyQ$default (Lcom/zhumeng/kanvas/drawing/DrawingSnapshot;Ljava/lang/String;Ljava/util/List;Lcom/zhumeng/kanvas/drawing/DrawingState;Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;Landroidx/compose/ui/geometry/Offset;ZZILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingSnapshot;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getContinuous ()Z
+	public final fun getMagnetMode ()Lcom/zhumeng/kanvas/drawing/DrawingMagnetMode;
+	public final fun getOverlays ()Ljava/util/List;
+	public final fun getPointer-_m7T9-E ()Landroidx/compose/ui/geometry/Offset;
+	public final fun getState ()Lcom/zhumeng/kanvas/drawing/DrawingState;
+	public final fun getSymbol ()Ljava/lang/String;
+	public final fun getVisible ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/zhumeng/kanvas/drawing/DrawingState {
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingState$Drawing : com/zhumeng/kanvas/drawing/DrawingState {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;I)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun copy (Ljava/lang/String;I)Lcom/zhumeng/kanvas/drawing/DrawingState$Drawing;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/drawing/DrawingState$Drawing;Ljava/lang/String;IILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingState$Drawing;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOverlayId ()Ljava/lang/String;
+	public final fun getPointerIndex ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingState$Editing : com/zhumeng/kanvas/drawing/DrawingState {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;Ljava/lang/Integer;)V
+	public synthetic fun <init> (Ljava/lang/String;Ljava/lang/Integer;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()Ljava/lang/Integer;
+	public final fun copy (Ljava/lang/String;Ljava/lang/Integer;)Lcom/zhumeng/kanvas/drawing/DrawingState$Editing;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/drawing/DrawingState$Editing;Ljava/lang/String;Ljava/lang/Integer;ILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingState$Editing;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOverlayId ()Ljava/lang/String;
+	public final fun getSelectedPointIndex ()Ljava/lang/Integer;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingState$Exited : com/zhumeng/kanvas/drawing/DrawingState {
+	public static final field $stable I
+	public static final field INSTANCE Lcom/zhumeng/kanvas/drawing/DrawingState$Exited;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingState$Prepared : com/zhumeng/kanvas/drawing/DrawingState {
+	public static final field $stable I
+	public static final field INSTANCE Lcom/zhumeng/kanvas/drawing/DrawingState$Prepared;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingTextAreaStyle {
+	public static final field $stable I
+	public synthetic fun <init> (Landroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/text/font/FontStyle;Landroidx/compose/ui/text/font/FontWeight;Ljava/lang/Float;Landroidx/compose/ui/graphics/Color;FFFFLandroidx/compose/ui/graphics/Color;FFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Landroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/text/font/FontStyle;Landroidx/compose/ui/text/font/FontWeight;Ljava/lang/Float;Landroidx/compose/ui/graphics/Color;FFFFLandroidx/compose/ui/graphics/Color;FFLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun component10 ()F
+	public final fun component11-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun component12 ()F
+	public final fun component13 ()F
+	public final fun component2 ()F
+	public final fun component3-4Lr2A7w ()Landroidx/compose/ui/text/font/FontStyle;
+	public final fun component4 ()Landroidx/compose/ui/text/font/FontWeight;
+	public final fun component5 ()Ljava/lang/Float;
+	public final fun component6-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun component7 ()F
+	public final fun component8 ()F
+	public final fun component9 ()F
+	public final fun copy-xEwxMEE (Landroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/text/font/FontStyle;Landroidx/compose/ui/text/font/FontWeight;Ljava/lang/Float;Landroidx/compose/ui/graphics/Color;FFFFLandroidx/compose/ui/graphics/Color;FF)Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;
+	public static synthetic fun copy-xEwxMEE$default (Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;Landroidx/compose/ui/graphics/Color;FLandroidx/compose/ui/text/font/FontStyle;Landroidx/compose/ui/text/font/FontWeight;Ljava/lang/Float;Landroidx/compose/ui/graphics/Color;FFFFLandroidx/compose/ui/graphics/Color;FFILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingTextAreaStyle;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBackgroundColor-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun getBorderColor-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public final fun getBorderRadiusPx ()F
+	public final fun getBorderWidthPx ()F
+	public final fun getFontSizeSp ()F
+	public final fun getFontStyle-4Lr2A7w ()Landroidx/compose/ui/text/font/FontStyle;
+	public final fun getFontWeight ()Landroidx/compose/ui/text/font/FontWeight;
+	public final fun getLineHeightMultiplier ()Ljava/lang/Float;
+	public final fun getPaddingBottomPx ()F
+	public final fun getPaddingLeftPx ()F
+	public final fun getPaddingRightPx ()F
+	public final fun getPaddingTopPx ()F
+	public final fun getTextColor-QN2ZGVo ()Landroidx/compose/ui/graphics/Color;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/zhumeng/kanvas/drawing/DrawingTool {
+	public abstract fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public static synthetic fun draw-0lybdyQ$default (Lcom/zhumeng/kanvas/drawing/DrawingTool;Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;FILjava/lang/Object;)V
+	public abstract fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public abstract fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingTool$DefaultImpls {
+	public static synthetic fun draw-0lybdyQ$default (Lcom/zhumeng/kanvas/drawing/DrawingTool;Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;FILjava/lang/Object;)V
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingToolRegistry {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/Iterable;)V
+	public synthetic fun <init> (Ljava/lang/Iterable;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun get (Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;)Lcom/zhumeng/kanvas/drawing/DrawingTool;
+	public final fun getSupportedTypes ()Ljava/util/Set;
+	public final fun register (Lcom/zhumeng/kanvas/drawing/DrawingTool;)V
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingToolbarKt {
+	public static final fun DrawingToolbar-mqZj4sc (Lcom/zhumeng/kanvas/drawing/DrawingController;JLandroidx/compose/ui/Modifier;Lcom/zhumeng/kanvas/drawing/DrawingToolbarState;ZLkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;II)V
+	public static final fun rememberDrawingToolbarState-ULxng0E (JLkotlin/jvm/functions/Function1;Landroidx/compose/runtime/Composer;II)Lcom/zhumeng/kanvas/drawing/DrawingToolbarState;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingToolbarState {
+	public static final field $stable I
+	public final fun getPosition-F1C5BW0 ()J
+	public final fun moveTo-RKTJFtU (JJJZ)V
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingTypeDescriptor {
+	public static final field $stable I
+	public static final field Companion Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor$Companion;
+	public static final field UnknownGroup Ljava/lang/String;
+	public fun <init> (Ljava/lang/String;ILjava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILjava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;ILjava/lang/String;)Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;Ljava/lang/String;ILjava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getGroupId ()Ljava/lang/String;
+	public final fun getId ()Ljava/lang/String;
+	public final fun getSteps ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/drawing/DrawingTypeDescriptor$Companion {
+	public final fun getBuiltIns ()Ljava/util/List;
+	public final fun getFibonacciRetracement ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun getHorizontalLine ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun getRayLine ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun getRectangle ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun getStraightLine ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun getTwoPointLine ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public final fun getVerticalLine ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+}
+
+public final class com/zhumeng/kanvas/drawing/FibonacciRetracementDrawingTool : com/zhumeng/kanvas/drawing/TwoPointDrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
+public final class com/zhumeng/kanvas/drawing/HorizontalLineDrawingTool : com/zhumeng/kanvas/drawing/OnePointAxisDrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
+public abstract class com/zhumeng/kanvas/drawing/OnePointAxisDrawingTool : com/zhumeng/kanvas/drawing/DrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	protected final fun handle-fxi7HP0 (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Landroidx/compose/ui/geometry/Offset;ZLcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	protected final fun point-GcwITfU (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;)Landroidx/compose/ui/geometry/Offset;
+}
+
+public final class com/zhumeng/kanvas/drawing/RayLineDrawingTool : com/zhumeng/kanvas/drawing/TwoPointDrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
+public final class com/zhumeng/kanvas/drawing/RectangleDrawingTool : com/zhumeng/kanvas/drawing/TwoPointDrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
+public final class com/zhumeng/kanvas/drawing/StraightLineDrawingTool : com/zhumeng/kanvas/drawing/TwoPointDrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
+public abstract class com/zhumeng/kanvas/drawing/TwoPointDrawingTool : com/zhumeng/kanvas/drawing/DrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	protected final fun handles (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Ljava/util/List;ZLcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	protected final fun projected (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;)Ljava/util/List;
+}
+
+public final class com/zhumeng/kanvas/drawing/TwoPointLineDrawingTool : com/zhumeng/kanvas/drawing/TwoPointDrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
+public final class com/zhumeng/kanvas/drawing/VerticalLineDrawingTool : com/zhumeng/kanvas/drawing/OnePointAxisDrawingTool {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
+	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+}
+
