@@ -1,5 +1,127 @@
+public final class com/zhumeng/kanvas/KanvasCandleOrder : java/lang/Enum {
+	public static final field NewestFirst Lcom/zhumeng/kanvas/KanvasCandleOrder;
+	public static final field OldestFirst Lcom/zhumeng/kanvas/KanvasCandleOrder;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/KanvasCandleOrder;
+	public static fun values ()[Lcom/zhumeng/kanvas/KanvasCandleOrder;
+}
+
+public final class com/zhumeng/kanvas/KanvasChartCallbacks {
+	public static final field $stable I
+	public fun <init> ()V
+	public fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lkotlin/jvm/functions/Function1;
+	public final fun component2 ()Lkotlin/jvm/functions/Function1;
+	public final fun component3 ()Lkotlin/jvm/functions/Function1;
+	public final fun component4 ()Lkotlin/jvm/functions/Function1;
+	public final fun component5 ()Lkotlin/jvm/functions/Function0;
+	public final fun copy (Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;)Lcom/zhumeng/kanvas/KanvasChartCallbacks;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/KanvasChartCallbacks;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasChartCallbacks;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getOnCrosshairChange ()Lkotlin/jvm/functions/Function1;
+	public final fun getOnDoubleTap ()Lkotlin/jvm/functions/Function0;
+	public final fun getOnLayoutChange ()Lkotlin/jvm/functions/Function1;
+	public final fun getOnLoadMoreRequested ()Lkotlin/jvm/functions/Function1;
+	public final fun getOnUnsupportedIndicators ()Lkotlin/jvm/functions/Function1;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/KanvasChartConfig {
+	public static final field $stable I
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/KlineChartType;
+	public final fun component10 ()Lcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;
+	public final fun component11 ()Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;
+	public final fun component12 ()Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;
+	public final fun component13 ()Z
+	public final fun component2 ()I
+	public final fun component3 ()Lcom/zhumeng/kanvas/KlineChartStyle;
+	public final fun component4 ()Lcom/zhumeng/kanvas/KlineChartRenderConfig;
+	public final fun component5 ()Lcom/zhumeng/kanvas/KlinePaneRenderConfig;
+	public final fun component6 ()Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;
+	public final fun component7 ()Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;
+	public final fun component8-D9Ej5fM ()F
+	public final fun component9-D9Ej5fM ()F
+	public final fun copy-KBW6s6s (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Z)Lcom/zhumeng/kanvas/KanvasChartConfig;
+	public static synthetic fun copy-KBW6s6s$default (Lcom/zhumeng/kanvas/KanvasChartConfig;Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasChartConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAxisWidth-D9Ej5fM ()F
+	public final fun getBuiltInIndicators ()Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;
+	public final fun getCandleZIndex ()I
+	public final fun getChartType ()Lcom/zhumeng/kanvas/KlineChartType;
+	public final fun getDrawing ()Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;
+	public final fun getDrawingMagnifier ()Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;
+	public final fun getOrderMarkers ()Lcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;
+	public final fun getPanes ()Lcom/zhumeng/kanvas/KlinePaneRenderConfig;
+	public final fun getRender ()Lcom/zhumeng/kanvas/KlineChartRenderConfig;
+	public final fun getResetToLatestOnDoubleTap ()Z
+	public final fun getStyle ()Lcom/zhumeng/kanvas/KlineChartStyle;
+	public final fun getTimeAxis ()Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;
+	public final fun getTimeAxisHeight-D9Ej5fM ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class com/zhumeng/kanvas/KanvasChartKt {
 	public static final fun KanvasChart-yyG3knc (Lcom/zhumeng/kanvas/core/KlineUiState;Lkotlin/jvm/functions/Function1;Landroidx/compose/ui/Modifier;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Ljava/util/List;Lcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;Lcom/zhumeng/kanvas/KlineIndicatorRendererRegistry;Lcom/zhumeng/kanvas/KlineIndicatorRendererLifecycleHost;Lkotlin/jvm/functions/Function1;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;Lkotlin/jvm/functions/Function2;FFLcom/zhumeng/kanvas/KlineCrossTooltipProvider;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function3;Lcom/zhumeng/kanvas/drawing/DrawingController;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Landroidx/compose/ui/geometry/Rect;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;IIIIII)V
+}
+
+public final class com/zhumeng/kanvas/KanvasChartState {
+	public static final field $stable I
+	public final fun completeLoadMore (JLjava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun completeLoadMore (Ljava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public static synthetic fun completeLoadMore$default (Lcom/zhumeng/kanvas/KanvasChartState;JLjava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public static synthetic fun completeLoadMore$default (Lcom/zhumeng/kanvas/KanvasChartState;Ljava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun failLoadMore (JLjava/lang/String;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun failLoadMore (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun getDefaultConfig ()Lcom/zhumeng/kanvas/KanvasChartConfig;
+	public final fun getDrawingController ()Lcom/zhumeng/kanvas/drawing/DrawingController;
+	public final fun getEvents ()Lkotlinx/coroutines/flow/SharedFlow;
+	public final fun getIndicators ()Lcom/zhumeng/kanvas/KanvasIndicatorState;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun moveTo (J)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun moveToLatest ()Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun requestLoadMore (Z)Z
+	public static synthetic fun requestLoadMore$default (Lcom/zhumeng/kanvas/KanvasChartState;ZILjava/lang/Object;)Z
+	public final fun select (Lcom/zhumeng/kanvas/core/KlineSpec;ZZ)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public static synthetic fun select$default (Lcom/zhumeng/kanvas/KanvasChartState;Lcom/zhumeng/kanvas/core/KlineSpec;ZZILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun setData (Lcom/zhumeng/kanvas/core/KlineSeries;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun setData (Ljava/util/List;Lcom/zhumeng/kanvas/KanvasCandleOrder;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public static synthetic fun setData$default (Lcom/zhumeng/kanvas/KanvasChartState;Ljava/util/List;Lcom/zhumeng/kanvas/KanvasCandleOrder;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun setMarket (Lcom/zhumeng/kanvas/core/KlineSpec;Ljava/util/List;Lcom/zhumeng/kanvas/KanvasCandleOrder;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public static synthetic fun setMarket$default (Lcom/zhumeng/kanvas/KanvasChartState;Lcom/zhumeng/kanvas/core/KlineSpec;Ljava/util/List;Lcom/zhumeng/kanvas/KanvasCandleOrder;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun updateLatest (Lcom/zhumeng/kanvas/core/KlineCandle;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun updateViewport (Lcom/zhumeng/kanvas/core/KlineViewport;)Lcom/zhumeng/kanvas/core/KlineUiState;
+}
+
+public final class com/zhumeng/kanvas/KanvasChartStateKt {
+	public static final fun KanvasChart (Lcom/zhumeng/kanvas/KanvasChartState;Landroidx/compose/ui/Modifier;Lcom/zhumeng/kanvas/KanvasChartConfig;Lcom/zhumeng/kanvas/KanvasChartCallbacks;Ljava/util/List;Lcom/zhumeng/kanvas/KlineCrossTooltipProvider;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function3;Landroidx/compose/ui/geometry/Rect;Lkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;III)V
+	public static final fun KanvasChart (Ljava/util/List;Landroidx/compose/ui/Modifier;Lcom/zhumeng/kanvas/core/KlineSpec;Lcom/zhumeng/kanvas/KanvasCandleOrder;Lcom/zhumeng/kanvas/KanvasChartConfig;Lcom/zhumeng/kanvas/KanvasChartCallbacks;Landroidx/compose/runtime/Composer;II)V
+	public static final fun rememberKanvasChartState (Lcom/zhumeng/kanvas/KanvasChartConfig;Lcom/zhumeng/kanvas/KlineIndicatorPluginCatalog;Ljava/lang/Iterable;IILcom/zhumeng/kanvas/core/KlineComputeMode;Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;Lcom/zhumeng/kanvas/drawing/DrawingController;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;II)Lcom/zhumeng/kanvas/KanvasChartState;
+}
+
+public final class com/zhumeng/kanvas/KanvasIndicatorState {
+	public static final field $stable I
+	public final fun config (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;)Lcom/zhumeng/kanvas/KlineIndicatorPluginConfig;
+	public final fun getCalculationState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun hide (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun hide (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun moveSubIndicator (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;I)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun moveSubIndicator (Lcom/zhumeng/kanvas/core/IndicatorKey;I)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun retryCalculation ()V
+	public final fun show (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun show (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun snapshot ()Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun toggle (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun toggle (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun update (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;Lcom/zhumeng/kanvas/KlineIndicatorPluginConfig;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun update (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;Lkotlin/jvm/functions/Function1;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun update (Lcom/zhumeng/kanvas/KlineIndicatorPluginBinding;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun updateDefinition (Lcom/zhumeng/kanvas/core/IndicatorKey;Lkotlin/jvm/functions/Function1;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
 }
 
 public final class com/zhumeng/kanvas/KlineAvlIndicatorPlugin : com/zhumeng/kanvas/KlineIndicatorPlugin {
@@ -935,6 +1057,7 @@ public final class com/zhumeng/kanvas/KlineIndicatorPluginCatalog {
 }
 
 public final class com/zhumeng/kanvas/KlineIndicatorPluginCatalog$Companion {
+	public final fun getEmpty ()Lcom/zhumeng/kanvas/KlineIndicatorPluginCatalog;
 	public final fun of (Ljava/lang/Iterable;)Lcom/zhumeng/kanvas/KlineIndicatorPluginCatalog;
 	public final fun of ([Lcom/zhumeng/kanvas/KlineIndicatorPluginBinding;)Lcom/zhumeng/kanvas/KlineIndicatorPluginCatalog;
 }

@@ -32,13 +32,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
@@ -61,6 +59,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.zhumeng.kanvas.KanvasChart
+import com.zhumeng.kanvas.KanvasChartConfig
 import com.zhumeng.kanvas.KlineChartStyle
 import com.zhumeng.kanvas.KlineChartType
 import com.zhumeng.kanvas.KlineIndicatorPluginCatalog
@@ -94,17 +93,13 @@ import com.zhumeng.kanvas.KlineWrIndicatorPlugin
 import com.zhumeng.kanvas.KlineStochasticRsiIndicatorPlugin
 import com.zhumeng.kanvas.KlineStochasticRsiIndicatorConfig
 import com.zhumeng.kanvas.bind
-import com.zhumeng.kanvas.rememberKlineIndicatorPluginChartRuntime
+import com.zhumeng.kanvas.rememberKanvasChartState
 import com.zhumeng.kanvas.core.IndicatorPlacement
-import com.zhumeng.kanvas.core.IndicatorRuntimeCoordinator
 import com.zhumeng.kanvas.core.KlineCandle
 import com.zhumeng.kanvas.core.KlineComputeMode
-import com.zhumeng.kanvas.core.KlineController
 import com.zhumeng.kanvas.core.KlineEvent
 import com.zhumeng.kanvas.core.KlineInterval
-import com.zhumeng.kanvas.core.KlineIndicatorRefreshPolicy
 import com.zhumeng.kanvas.core.KlineSpec
-import com.zhumeng.kanvas.core.KlineTimeUnit
 import com.zhumeng.kanvas.drawing.DrawingController
 import com.zhumeng.kanvas.drawing.DrawingMagnetMode
 import com.zhumeng.kanvas.drawing.DrawingState
@@ -159,14 +154,6 @@ private fun ReferenceSample(
             latestCandleRangeSmoothFactor = 0.18f,
         )
     }
-    val controller = remember(density.density, renderConfig) {
-        KlineController(
-            cacheCapacity = 3,
-            initialViewport = renderConfig.viewport.initialViewport(density.density),
-        )
-    }
-    val state by controller.state.collectAsState()
-    val drawingController = remember { DrawingController() }
     var showDrawingTools by rememberSaveable { mutableStateOf(false) }
     val movingAveragePlugin = remember {
         KlineMovingAverageIndicatorPlugin(
@@ -233,30 +220,17 @@ private fun ReferenceSample(
     }
     val indicatorDefinitions = remember(indicatorCatalog) { indicatorCatalog.definitions }
     val activeIndicatorKeys = remember(indicatorDefinitions) { indicatorDefinitions.take(2).map { it.key } }
-    // Kotlin-native plugins bind typed settings, then provide Core definitions,
-    // renderers, and a lifecycle host.
-    val indicatorPluginRuntime = rememberKlineIndicatorPluginChartRuntime(
-        catalog = indicatorCatalog,
-        activeKeys = activeIndicatorKeys,
-    )
-    val indicatorRegistry = indicatorPluginRuntime.indicatorRegistry
-    val indicatorRegistrySnapshot by indicatorRegistry.state.collectAsState()
-    val indicatorScope = rememberCoroutineScope()
     var computeMode by remember { mutableStateOf(KlineComputeMode.Fast) }
-    val indicatorCoordinator = remember(controller, indicatorRegistry, indicatorScope, computeMode) {
-        IndicatorRuntimeCoordinator(
-            controller = controller,
-            registry = indicatorRegistry,
-            scope = indicatorScope,
-            computeMode = computeMode,
-            refreshPolicy = KlineIndicatorRefreshPolicy.OnCandleBoundary,
-        )
-    }
-    DisposableEffect(indicatorCoordinator) {
-        onDispose(indicatorCoordinator::close)
-    }
-    val indicatorSnapshot by indicatorCoordinator.state.collectAsState()
     var chartType by remember { mutableStateOf<KlineChartType>(KlineChartType.Bar()) }
+    val chartState = rememberKanvasChartState(
+        config = KanvasChartConfig(render = renderConfig),
+        indicatorCatalog = indicatorCatalog,
+        activeIndicatorKeys = activeIndicatorKeys,
+        computeMode = computeMode,
+    )
+    val state by chartState.state.collectAsState()
+    val indicatorRegistrySnapshot by chartState.indicators.state.collectAsState()
+    val drawingController = chartState.drawingController
     var selectedTimeframe by remember { mutableStateOf("1h") }
     var showIndicatorSheet by remember { mutableStateOf(false) }
     var historicalPage by remember { mutableStateOf(0) }
@@ -287,22 +261,21 @@ private fun ReferenceSample(
         KlineSpec(
             symbol = "BTC-USDT",
             interval = when (selectedTimeframe) {
-                "1m" -> KlineInterval(1, KlineTimeUnit.Minute)
-                "15m" -> KlineInterval(15, KlineTimeUnit.Minute)
-                "4h" -> KlineInterval(4, KlineTimeUnit.Hour)
-                "1d" -> KlineInterval(1, KlineTimeUnit.Day)
-                else -> KlineInterval(1, KlineTimeUnit.Hour)
+                "1m" -> KlineInterval.minutes(1)
+                "15m" -> KlineInterval.minutes(15)
+                "4h" -> KlineInterval.hours(4)
+                "1d" -> KlineInterval.days(1)
+                else -> KlineInterval.hours(1)
             },
             precision = 2,
             label = "Compose reference fixture",
         )
     }
 
-    LaunchedEffect(controller, spec, fixtureLatestMillis, candleIntervalMillis) {
-        controller.select(spec, useCache = false)
-        controller.replaceAll(
-            spec,
-            sampleCandles(
+    LaunchedEffect(chartState, spec, fixtureLatestMillis, candleIntervalMillis) {
+        chartState.setMarket(
+            spec = spec,
+            candles = sampleCandles(
                 count = 240,
                 latestHourMillis = fixtureLatestMillis,
                 candleIntervalMillis = candleIntervalMillis,
@@ -311,16 +284,15 @@ private fun ReferenceSample(
         val realtimeRandom = Random(SampleRandomSeed xor spec.key.hashCode())
         while (true) {
             delay(RealtimeUpdateMillis)
-            val current = controller.state.value
+            val current = chartState.state.value
             if (current.spec?.key != spec.key) continue
             val latest = current.series.latest ?: continue
             val now = System.currentTimeMillis()
             val currentBucketMillis = now - now.mod(candleIntervalMillis)
             if (currentBucketMillis > latest.timestampMillis) {
                 // Close the previous interval before prepending the next one.
-                controller.updateLatest(spec, latest.copy(confirmed = true))
-                controller.updateLatest(
-                    spec,
+                chartState.updateLatest(latest.copy(confirmed = true))
+                chartState.updateLatest(
                     nextRealtimeCandle(
                         previous = latest,
                         timestampMillis = currentBucketMillis,
@@ -329,8 +301,7 @@ private fun ReferenceSample(
                     ),
                 )
             } else {
-                controller.updateLatest(
-                    spec,
+                chartState.updateLatest(
                     nextRealtimeCandle(
                         previous = latest,
                         timestampMillis = latest.timestampMillis,
@@ -341,17 +312,16 @@ private fun ReferenceSample(
             }
         }
     }
-    LaunchedEffect(controller, spec, candleIntervalMillis) {
-        controller.events.collect { event ->
+    LaunchedEffect(chartState, spec, candleIntervalMillis) {
+        chartState.events.collect { event ->
             if (event is KlineEvent.LoadMore) {
                 // Simulate network latency so silent prefetch and boundary
                 // loading behavior remain manually testable.
                 delay(1_500)
                 historicalPage += 1
-                controller.completeLoadMore(
+                chartState.completeLoadMore(
                     requestId = event.requestId,
-                    incoming =
-                    sampleCandles(
+                    candles = sampleCandles(
                         count = 120,
                         startHoursAgo = 240 + (historicalPage - 1) * 120,
                         latestHourMillis = fixtureLatestMillis,
@@ -439,13 +409,7 @@ private fun ReferenceSample(
         if (showIndicatorSheet) {
             IndicatorSettingsSheet(
                 registrySnapshot = indicatorRegistrySnapshot,
-                onToggle = { key ->
-                    if (indicatorRegistrySnapshot.isActive(key)) {
-                        indicatorRegistry.hide(key)
-                    } else {
-                        indicatorRegistry.show(key)
-                    }
-                },
+                onToggle = chartState.indicators::toggle,
                 onApply = { value ->
                     val updated = when (value.id) {
                         "sample_ma" -> movingAveragePlugin.bind(
@@ -552,7 +516,9 @@ private fun ReferenceSample(
                         ).definition
                         else -> null
                     }
-                    updated?.let(indicatorRegistry::upsert)
+                    updated?.let { definition ->
+                        chartState.indicators.updateDefinition(definition.key) { definition }
+                    }
                 },
                 onDismiss = { showIndicatorSheet = false },
             )
@@ -569,25 +535,17 @@ private fun ReferenceSample(
                 .onSizeChanged { chartContainerSize = it },
         ) {
             KanvasChart(
-                state = state,
-                onViewportChange = controller::updateViewport,
-                onViewportConstraintsChange = controller::updateViewportConstraints,
-                onLoadMoreRequested = controller::requestLoadMore,
-                onMoveToInitialPosition = controller::moveToInitialPosition,
-                onDoubleTap = controller::moveToInitialPosition,
-                chartType = chartType,
-                style = chartStyle,
-                renderConfig = renderConfig,
-                orderMarkers = sampleOrderMarkers,
-                orderMarkerConfig = orderMarkerConfig,
-                indicatorSnapshot = indicatorSnapshot,
-                indicatorRegistrySnapshot = indicatorRegistrySnapshot,
-                indicatorRendererRegistry = indicatorPluginRuntime.rendererRegistry,
-                indicatorRendererLifecycleHost = indicatorPluginRuntime.indicatorRendererLifecycleHost,
-                paneConfig = KlinePaneRenderConfig(
-                    subPanes = listOf(KlineSubPaneRenderConfig("volume", preferredHeight = 96.dp)),
+                state = chartState,
+                config = KanvasChartConfig(
+                    chartType = chartType,
+                    style = chartStyle,
+                    render = renderConfig,
+                    orderMarkers = orderMarkerConfig,
+                    panes = KlinePaneRenderConfig(
+                        subPanes = listOf(KlineSubPaneRenderConfig("volume", preferredHeight = 96.dp)),
+                    ),
                 ),
-                drawingController = drawingController,
+                orderMarkers = sampleOrderMarkers,
                 modifier = Modifier.fillMaxSize(),
             )
             if (showDrawingTools) {
@@ -611,13 +569,7 @@ private fun ReferenceSample(
         IndicatorTextBar(
             definitions = indicatorDefinitions,
             isActive = indicatorRegistrySnapshot::isActive,
-            onToggle = { key ->
-                if (indicatorRegistrySnapshot.isActive(key)) {
-                    indicatorRegistry.hide(key)
-                } else {
-                    indicatorRegistry.show(key)
-                }
-            },
+            onToggle = chartState.indicators::toggle,
         )
     }
 }

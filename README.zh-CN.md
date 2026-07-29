@@ -73,49 +73,53 @@ dependencies {
 adb shell am start -n com.zhumeng.kanvas.example/.MainActivity
 ```
 
-库要求 Android `minSdk 24`、Java 17，并使用 Jetpack Compose。创建 Controller、订阅状态，
-再将视口和加载回调交还给 Controller：
+库要求 Android `minSdk 24`、Java 17，并使用 Jetpack Compose。
 
-`KlineViewport` 使用 Canvas 物理像素，应通过渲染配置初始化控制器：
+只展示数据或低频整体替换时，可以直接传入 K 线。默认顺序为最新数据在前；接口返回正序时
+指定 `OldestFirst`：
 
 ```kotlin
-val density = LocalDensity.current
-val renderConfig = remember { KlineChartRenderConfig() }
-val controller = remember(density.density, renderConfig) {
-    KlineController(
-        initialViewport = renderConfig.viewport.initialViewport(density.density),
-    )
-}
-val state by controller.state.collectAsState()
-
 KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
-    onViewportConstraintsChange = controller::updateViewportConstraints,
-    onLoadMoreRequested = controller::requestLoadMore,
-    onMoveToInitialPosition = controller::moveToInitialPosition,
-    renderConfig = renderConfig,
+    candles = candles,
+    order = KanvasCandleOrder.OldestFirst,
+    spec = KlineSpec("BTC-USDT", KlineInterval.hours(1), precision = 2),
+    modifier = Modifier.fillMaxSize(),
 )
 ```
 
-选择交易对/周期并装入首屏数据。`select` 会开启一个新的图表会话；首屏请求结束后使用
-`replaceAll`，不要用 `completeLoadMore` 代替初始化：
+实时行情项目使用一个高层状态即可。它统一持有 Controller、视口、加载状态、画线、指标计算、
+Renderer 生命周期及资源清理：
 
 ```kotlin
+val chartState = rememberKanvasChartState()
 val spec = remember {
-    KlineSpec(
-        symbol = "BTC-USDT",
-        interval = KlineInterval(1, KlineTimeUnit.Hour),
-        precision = 2,
-    )
+    KlineSpec("BTC-USDT", KlineInterval.minutes(15), precision = 2)
 }
 
 LaunchedEffect(spec) {
-    controller.select(spec, useCache = true)
-    val candles = marketRepository.initialCandles(spec)
-    controller.replaceAll(spec, candles.toNewestFirst())
+    chartState.setMarket(
+        spec = spec,
+        candles = marketRepository.initialCandles(spec),
+    )
 }
+
+KanvasChart(
+    state = chartState,
+    modifier = Modifier.fillMaxSize(),
+)
 ```
+
+实时更新和导航直接调用状态方法：
+
+```kotlin
+chartState.updateLatest(candle)
+chartState.moveToLatest()
+chartState.moveTo(timestampMillis)
+```
+
+`KanvasChartState` 是推荐给应用开发者的标准 API。原有接收 `KlineUiState` 的
+`KanvasChart`、`KlineController`、Registry 和 Renderer 参数继续作为高级 API 保留，
+需要完全掌控运行时边界的项目仍可直接使用。
 
 `KlineCandle` 至少需要时间戳和 OHLC；`volume`、`turnover` 与 `confirmed` 可按数据源填充。
 所有时间戳均使用毫秒。
@@ -152,11 +156,12 @@ val renderConfig = KlineChartRenderConfig(
 )
 
 KanvasChart(
-    state = state,
-    style = darkStyle,
-    renderConfig = renderConfig,
-    chartType = KlineChartType.Bar(KlineBarStyle.UpHollow),
-    // ...其余 Controller 回调
+    state = chartState,
+    config = KanvasChartConfig(
+        style = darkStyle,
+        render = renderConfig,
+        chartType = KlineChartType.Bar(KlineBarStyle.UpHollow),
+    ),
 )
 ```
 
@@ -179,10 +184,9 @@ KanvasChart(
 `Layout` 请求计算后的高度，并受父级约束限制。`onLayoutChange` 还会发布物理窗格几何信息和
 `requiredHeightPx`，供需要协调周边 UI 的宿主使用。
 
-当最新 K 线不在屏幕中时，最新价标签可以点击。传入
-`onMoveToInitialPosition = controller::moveToInitialPosition` 后，图表会把该操作交给
-Controller 处理（包括清除待处理的加载更多状态）。如果未传入，图表会通过
-`onViewportChange` 发布相同的初始视口。
+当最新 K 线不在屏幕中时，最新价标签可以点击。标准状态会自动回到最新位置，并清除待处理的
+加载更多状态。若双击只需要通知业务而不自动复位，可设置
+`KanvasChartConfig.resetToLatestOnDoubleTap=false`，并通过 `KanvasChartCallbacks` 观察事件。
 当周期长于一秒时，屏幕内最新 K 线的价格标签下方还会显示 Kanvas 风格的实时倒计时。
 原生 `KlineCountdownRenderConfig` 控制可见性，以及当前支持的背景、文字、边框尺寸；
 宿主需要直接构造该配置；当前仓库不提供外部 Candle 记录到 Compose 配置的自动转换器。
@@ -195,13 +199,14 @@ Controller 处理（包括清除待处理的加载更多状态）。如果未传
 惯性距离会比物理 1:1 跟随增加 20%。如需精确跟随可设为 `1f`，也可以在宿主渲染配置中覆盖。
 
 常用交互由 `KlineGestureConfig` 控制，包括长按 Cross、惯性平移、双指缩放、键盘快捷键、
-纵向缩放和自动加载更多。双击复位可直接绑定：
+纵向缩放和自动加载更多。标准入口默认双击复位：
 
 ```kotlin
 KanvasChart(
-    // ...
-    onDoubleTap = controller::moveToInitialPosition,
-    onMoveToInitialPosition = controller::moveToInitialPosition,
+    state = chartState,
+    callbacks = KanvasChartCallbacks(
+        onDoubleTap = { analytics.track("chart_double_tap") },
+    ),
 )
 ```
 
@@ -211,8 +216,9 @@ Kanvas 将数据操作明确区分为三类：
 
 | 场景 | API | 行为 |
 | --- | --- | --- |
-| 首次加载/完整刷新 | `replaceAll(spec, candles)` | 替换整个序列并回到初始视口 |
-| 行情推送 | `updateLatest(spec, candle)` | 更新同时间戳最新 K 线，或插入一根更新的 K 线 |
+| 首次市场加载 | `setMarket(spec, candles)` | 选择市场、替换序列并回到初始视口 |
+| 完整刷新 | `setData(candles)` | 替换当前市场的整个序列 |
+| 行情推送 | `updateLatest(candle)` | 更新同时间戳最新 K 线，或插入一根更新的 K 线 |
 | 历史分页 | `completeLoadMore(requestId, candles, hasMoreOlder)` | 将严格更旧的一页追加到历史侧，并保持当前视口锚点 |
 
 当 `renderConfig.gesture.autoLoadMore` 为 `true` 时，
@@ -231,8 +237,8 @@ Kanvas 将数据操作明确区分为三类：
 `beforeTimestampMillis` 游标：
 
 ```kotlin
-LaunchedEffect(controller, spec) {
-    controller.events.collect { event ->
+LaunchedEffect(chartState, spec) {
+    chartState.events.collect { event ->
         if (event !is KlineEvent.LoadMore || event.spec.key != spec.key) return@collect
 
         runCatching {
@@ -246,13 +252,13 @@ LaunchedEffect(controller, spec) {
                 .distinctBy(KlineCandle::timestampMillis)
                 .filter { it.timestampMillis < event.beforeTimestampMillis }
 
-            controller.completeLoadMore(
+            chartState.completeLoadMore(
                 requestId = event.requestId,
-                incoming = normalized,
+                candles = normalized,
                 hasMoreOlder = page.hasMoreOlder,
             )
         }.onFailure { error ->
-            controller.failLoadMore(
+            chartState.failLoadMore(
                 requestId = event.requestId,
                 message = error.message ?: "load older candles failed",
             )
@@ -269,9 +275,9 @@ Core 不排序、去重或合并交易所数据。宿主必须提供严格按时
 K 线，并使用明确的数据操作：
 
 ```kotlin
-controller.replaceAll(spec, initialCandles)
-controller.updateLatest(spec, realtimeCandle)
-controller.completeLoadMore(requestId, strictlyOlderCandles)
+chartState.setMarket(spec, initialCandles)
+chartState.updateLatest(realtimeCandle)
+chartState.completeLoadMore(requestId, strictlyOlderCandles)
 ```
 
 对于 300ms 等高频更新，推荐让最新蜡烛实时变化、指标仅在新 K 线出现时刷新，并对
@@ -310,12 +316,13 @@ val orders = listOf(
 )
 
 KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
+    state = chartState,
     orderMarkers = orders,
-    orderMarkerConfig = KlineOrderMarkerRenderConfig(
-        buyColor = Color(0xFF16A085),
-        sellColor = Color(0xFFE05A5A),
+    config = KanvasChartConfig(
+        orderMarkers = KlineOrderMarkerRenderConfig(
+            buyColor = Color(0xFF16A085),
+            sellColor = Color(0xFFE05A5A),
+        ),
     ),
 )
 ```
@@ -328,13 +335,9 @@ KanvasChart(
 创建 `DrawingController`，将它传给图表，然后从应用 UI 启动内置工具：
 
 ```kotlin
-val drawing = remember { DrawingController() }
+val drawing = chartState.drawingController
 
-KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
-    drawingController = drawing,
-)
+KanvasChart(state = chartState)
 
 Button(onClick = { drawing.prepare(DrawingTypeDescriptor.TwoPointLine) }) {
     Text("Draw line")
@@ -410,53 +413,32 @@ val catalog = remember {
         volume.bind(KlineVolumeIndicatorConfig()),
     )
 }
-val indicatorRuntime = rememberKlineIndicatorPluginChartRuntime(
-    catalog = catalog,
-    activeKeys = catalog.definitions.map { it.key },
+val chartState = rememberKanvasChartState(
+    indicatorCatalog = catalog,
+    activeIndicatorKeys = catalog.definitions.map { it.key },
 )
-val registrySnapshot by indicatorRuntime.indicatorRegistry.state.collectAsState()
-val indicatorScope = rememberCoroutineScope()
-val coordinator = remember(controller, indicatorRuntime.indicatorRegistry, indicatorScope) {
-    IndicatorRuntimeCoordinator(controller, indicatorRuntime.indicatorRegistry, indicatorScope)
-}
-DisposableEffect(coordinator) { onDispose(coordinator::close) }
-val output by coordinator.state.collectAsState()
 
 KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
-    indicatorSnapshot = output,
-    indicatorRegistrySnapshot = registrySnapshot,
-    indicatorRendererRegistry = indicatorRuntime.rendererRegistry,
-    indicatorRendererLifecycleHost = indicatorRuntime.indicatorRendererLifecycleHost,
+    state = chartState,
 )
 ```
 
-`rememberKlineIndicatorPluginChartRuntime` 负责持有并关闭有状态实例。
-非 Compose 调用方使用 `catalog.createChartRuntime()`，并关闭返回的运行时。
-绑定的渲染器/工厂只能处理各自 Core `(kind, id)`，因此通配实现无法抢占其他插件或兜底渲染器。
-如需在不替换图表运行时的情况下更新已有插件，请调用：
+无需接触 Registry 或计算协调器，即可更新强类型参数、显示状态和副图顺序：
 
 ```kotlin
-indicatorRuntime.indicatorRegistry.upsert(
-    ma.bind(KlineMovingAverageIndicatorConfig(periods = listOf(10, 30))).definition,
+chartState.indicators.update(
+    ma,
+    KlineMovingAverageIndicatorConfig(periods = listOf(10, 30)),
 )
+chartState.indicators.toggle(volume.key)
+chartState.indicators.moveSubIndicator(volume.key, index = 0)
 ```
 
-`autoActivate`、`hide`、`show`、保留的 `keepAlive` 和四项副指标 FIFO 均由
-`IndicatorRegistry` 管理。MA 和成交量作为同一套公开插件 API 的可直接使用示例提供。
-
-应用可以直接控制指标显示状态：
-
-```kotlin
-val registry = indicatorRuntime.indicatorRegistry
-
-registry.show(macd.key)
-registry.hide(volume.key)
-```
-
-默认最多同时激活四个副指标；超出容量时按激活顺序执行 FIFO。需要其他数量时，通过
-`mountIndicatorRegistry(subIndicatorCapacity = ...)` 创建 Registry。
+`rememberKanvasChartState` 负责持有并关闭计算协调器和有状态 Renderer。绑定的渲染器/工厂
+只能处理各自 Core `(kind, id)`，因此通配实现无法抢占其他插件或兜底渲染器。
+默认最多同时激活四个副指标；超出容量时按激活顺序执行 FIFO。需要其他数量时，向
+`rememberKanvasChartState` 传入 `subIndicatorCapacity`。底层
+`rememberKlineIndicatorPluginChartRuntime` 和 `IndicatorRuntimeCoordinator` 继续作为高级 API。
 
 `IndicatorRuntimeCoordinator` 会在 UI 线程之外执行计算，替代结果等待中保留上一份成功输出，
 仅在计算失败时清空输出，并使用计算时对应的控制器修订号、注册表令牌/代次标记每个成功快照。
@@ -484,20 +466,22 @@ val catalog = remember {
 }
 
 KanvasChart(
-    // ...状态、runtime 与 renderer 参数
-    paneConfig = KlinePaneRenderConfig(
-        mode = KlineLayoutMode.Fixed,
-        subPanes = listOf(
-            KlineSubPaneRenderConfig(
-                id = "macd",
-                preferredHeight = 100.dp,
-                minHeight = 64.dp,
-                padding = KlinePanePadding(topPx = 12f, bottomPx = 4f),
-            ),
-            KlineSubPaneRenderConfig(
-                id = "rsi",
-                preferredHeight = 80.dp,
-                minHeight = 56.dp,
+    state = chartState,
+    config = KanvasChartConfig(
+        panes = KlinePaneRenderConfig(
+            mode = KlineLayoutMode.Fixed,
+            subPanes = listOf(
+                KlineSubPaneRenderConfig(
+                    id = "macd",
+                    preferredHeight = 100.dp,
+                    minHeight = 64.dp,
+                    padding = KlinePanePadding(topPx = 12f, bottomPx = 4f),
+                ),
+                KlineSubPaneRenderConfig(
+                    id = "rsi",
+                    preferredHeight = 80.dp,
+                    minHeight = 56.dp,
+                ),
             ),
         ),
     ),
@@ -520,7 +504,7 @@ KanvasChart(
 计算器中唯一的 `volume` 列渲染为柱状图，然后为非空的 Computed 输出使用通用折线。
 Direct/External 渲染器可在 `output == null` 时绘制，并可选择提供
 `visibleValueRange`，因此业务标记不依赖预计算流程。如果宿主渲染器应负责某个声明，
-请将其放在默认渲染器之前：
+请将其放在默认渲染器之前。下面属于高级接入，刻意使用底层图表重载：
 
 ```kotlin
 val rendererRegistry = remember {

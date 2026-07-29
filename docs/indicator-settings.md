@@ -40,8 +40,16 @@ KlineMovingAverageIndicatorConfig(
 )
 ```
 
-Rebind the typed configuration and call `indicatorRegistry.upsert(definition)`
-to apply periods, colors, and widths without replacing the indicator identity.
+Update the typed configuration through the standard chart state to apply
+periods, colors, and widths without replacing the indicator identity:
+
+```kotlin
+chartState.indicators.update(maPlugin, updatedConfig)
+chartState.indicators.toggle(maPlugin.key)
+```
+
 `KlineIndicatorLineStyle.visible` controls an individual output. Hidden outputs
 are excluded from drawing, Top Tips, and pane range calculation. Whole-indicator
-visibility continues to use `show(key)` and `hide(key)`.
+visibility uses `show(key)`, `hide(key)`, or `toggle(key)` on
+`chartState.indicators`. The underlying Registry remains available through the
+advanced API when an integration owns the runtime explicitly.

@@ -45,4 +45,11 @@ class KlineSpecTest {
         assertTrue(KlineLoadingState.LoadMore.isLoadMore)
         assertTrue(KlineLoadingState.LoadingMore.isLoadMore)
     }
+
+    @Test
+    fun `interval factories cover common market periods`() {
+        assertEquals(KlineInterval(15, KlineTimeUnit.Minute), KlineInterval.minutes(15))
+        assertEquals(KlineInterval(4, KlineTimeUnit.Hour), KlineInterval.hours(4))
+        assertEquals(KlineInterval(1, KlineTimeUnit.Day), KlineInterval.days(1))
+    }
 }

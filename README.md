@@ -83,45 +83,54 @@ adb shell am start -n com.zhumeng.kanvas.example/.MainActivity
 
 Kanvas requires Android minSdk 24, Java 17, and Jetpack Compose.
 
-`KlineViewport` is expressed in physical Canvas pixels. Seed the controller
-through the density-aware render config:
+For a read-only or infrequently replaced chart, pass candles directly. The
+default input order is newest-first; an ascending API response can opt into
+`OldestFirst`:
 
 ```kotlin
-val density = LocalDensity.current
-val renderConfig = remember { KlineChartRenderConfig() }
-val controller = remember(density.density, renderConfig) {
-    KlineController(
-        initialViewport = renderConfig.viewport.initialViewport(density.density),
-    )
-}
-val state by controller.state.collectAsState()
-
 KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
-    onViewportConstraintsChange = controller::updateViewportConstraints,
-    onLoadMoreRequested = controller::requestLoadMore,
-    onMoveToInitialPosition = controller::moveToInitialPosition,
-    renderConfig = renderConfig,
+    candles = candles,
+    order = KanvasCandleOrder.OldestFirst,
+    spec = KlineSpec("BTC-USDT", KlineInterval.hours(1), precision = 2),
+    modifier = Modifier.fillMaxSize(),
 )
 ```
 
-Select a symbol/interval and finish the initial request with `replaceAll`:
+Realtime applications should keep one high-level state. It owns controller,
+viewport, loading, drawing, indicator calculation, renderer lifecycle, and
+cleanup:
 
 ```kotlin
+val chartState = rememberKanvasChartState()
 val spec = remember {
-    KlineSpec(
-        symbol = "BTC-USDT",
-        interval = KlineInterval(1, KlineTimeUnit.Hour),
-        precision = 2,
-    )
+    KlineSpec("BTC-USDT", KlineInterval.minutes(15), precision = 2)
 }
 
 LaunchedEffect(spec) {
-    controller.select(spec, useCache = true)
-    controller.replaceAll(spec, marketRepository.initialCandles(spec).toNewestFirst())
+    chartState.setMarket(
+        spec = spec,
+        candles = marketRepository.initialCandles(spec),
+    )
 }
+
+KanvasChart(
+    state = chartState,
+    modifier = Modifier.fillMaxSize(),
+)
 ```
+
+Apply realtime and navigation intents directly:
+
+```kotlin
+chartState.updateLatest(candle)
+chartState.moveToLatest()
+chartState.moveTo(timestampMillis)
+```
+
+`KanvasChartState` is the standard application API. The original
+`KanvasChart(state = KlineUiState, ...)`, `KlineController`, registry, and
+renderer arguments remain available as the advanced API for integrations that
+need to own every runtime boundary explicitly.
 
 ## Theme and chart style
 
@@ -143,11 +152,12 @@ val renderConfig = KlineChartRenderConfig(
 )
 
 KanvasChart(
-    state = state,
-    style = style,
-    renderConfig = renderConfig,
-    chartType = KlineChartType.Bar(KlineBarStyle.UpHollow),
-    // controller callbacks ...
+    state = chartState,
+    config = KanvasChartConfig(
+        style = style,
+        render = renderConfig,
+        chartType = KlineChartType.Bar(KlineBarStyle.UpHollow),
+    ),
 )
 ```
 
@@ -170,10 +180,10 @@ constraints. `onLayoutChange` also publishes the physical pane geometry and
 `requiredHeightPx` for hosts that need to coordinate surrounding UI.
 
 When the latest Candle is off screen, its latest-price label is tappable.
-Supplying `onMoveToInitialPosition =
-controller::moveToInitialPosition` lets the Chart delegate that action to the
-Controller (including clearing a pending loading-more state). If omitted, the
-Chart publishes the same initial viewport through `onViewportChange`.
+The standard state automatically returns to the latest position when the
+off-screen latest-price label is tapped, including clearing a pending
+loading-more state. Set `KanvasChartConfig.resetToLatestOnDoubleTap=false` when
+double-tap should only be observed through `KanvasChartCallbacks`.
 For intervals longer than one second, an in-view latest Candle also shows a
 live countdown below its price label. The native
 `KlineCountdownRenderConfig` controls visibility and the currently applied
@@ -191,18 +201,18 @@ horizontal movement and release inertia travel 20% farther than physical
 one-to-one tracking. Set it to `1f` for exact tracking or override it in the
 host's render configuration.
 
-Bind both double-tap and the off-screen latest-price action to
-`controller::moveToInitialPosition` when the chart should return to the latest
-edge and clear a pending load-more state.
+The high-level overload binds both double-tap and the off-screen latest-price
+action to `chartState.moveToLatest()` by default.
 
 ## Data and pagination
 
-The controller separates the three data operations deliberately:
+The high-level state separates the data operations deliberately:
 
 | Use case | API |
 | --- | --- |
-| Initial load/full refresh | `replaceAll(spec, candles)` |
-| Realtime tick/Candle | `updateLatest(spec, candle)` |
+| Initial market/load | `setMarket(spec, candles)` |
+| Full refresh | `setData(candles)` |
+| Realtime tick/Candle | `updateLatest(candle)` |
 | Historical page | `completeLoadMore(requestId, candles, hasMoreOlder)` |
 
 `KlineLoadingState.InitLoading` and `LoadingMore` render a main-pane spinner
@@ -222,9 +232,9 @@ strictly newest-first candles with unique timestamps and use explicit data
 operations:
 
 ```kotlin
-controller.replaceAll(spec, initialCandles)
-controller.updateLatest(spec, realtimeCandle)
-controller.completeLoadMore(requestId, strictlyOlderCandles)
+chartState.setMarket(spec, initialCandles)
+chartState.updateLatest(realtimeCandle)
+chartState.completeLoadMore(requestId, strictlyOlderCandles)
 ```
 
 `completeLoadMore` only appends the page; its first candle must be strictly
@@ -233,12 +243,12 @@ ascending exchange responses, and middle-history corrections belong in the
 market-data adapter. The load event also exposes the semantic
 `beforeTimestampMillis` cursor.
 
-Collect events in one coroutine scoped to the Controller. Normalize exchange
+Collect events in one coroutine scoped to the chart state. Normalize exchange
 pages before passing them to Core:
 
 ```kotlin
-LaunchedEffect(controller, spec) {
-    controller.events.collect { event ->
+LaunchedEffect(chartState, spec) {
+    chartState.events.collect { event ->
         if (event !is KlineEvent.LoadMore || event.spec.key != spec.key) return@collect
         runCatching {
             marketRepository.loadOlder(event.spec, event.beforeTimestampMillis)
@@ -247,9 +257,9 @@ LaunchedEffect(controller, spec) {
                 .sortedByDescending(KlineCandle::timestampMillis)
                 .distinctBy(KlineCandle::timestampMillis)
                 .filter { it.timestampMillis < event.beforeTimestampMillis }
-            controller.completeLoadMore(event.requestId, candles, page.hasMoreOlder)
+            chartState.completeLoadMore(event.requestId, candles, page.hasMoreOlder)
         }.onFailure { error ->
-            controller.failLoadMore(event.requestId, error.message ?: "load older candles failed")
+            chartState.failLoadMore(event.requestId, error.message ?: "load older candles failed")
         }
     }
 }
@@ -273,12 +283,13 @@ val orders = listOf(
 )
 
 KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
+    state = chartState,
     orderMarkers = orders,
-    orderMarkerConfig = KlineOrderMarkerRenderConfig(
-        buyColor = Color(0xFF16A085),
-        sellColor = Color(0xFFE05A5A),
+    config = KanvasChartConfig(
+        orderMarkers = KlineOrderMarkerRenderConfig(
+            buyColor = Color(0xFF16A085),
+            sellColor = Color(0xFFE05A5A),
+        ),
     ),
 )
 ```
@@ -293,13 +304,9 @@ Create a `DrawingController`, pass it to the chart, and start a built-in tool
 from app UI:
 
 ```kotlin
-val drawing = remember { DrawingController() }
+val drawing = chartState.drawingController
 
-KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
-    drawingController = drawing,
-)
+KanvasChart(state = chartState)
 
 Button(onClick = { drawing.prepare(DrawingTypeDescriptor.TwoPointLine) }) {
     Text("Draw line")
@@ -382,48 +389,39 @@ val catalog = remember {
         volume.bind(KlineVolumeIndicatorConfig()),
     )
 }
-val indicatorRuntime = rememberKlineIndicatorPluginChartRuntime(
-    catalog = catalog,
-    activeKeys = catalog.definitions.map { it.key },
+val chartState = rememberKanvasChartState(
+    indicatorCatalog = catalog,
+    activeIndicatorKeys = catalog.definitions.map { it.key },
 )
-val registrySnapshot by indicatorRuntime.indicatorRegistry.state.collectAsState()
-val indicatorScope = rememberCoroutineScope()
-val coordinator = remember(controller, indicatorRuntime.indicatorRegistry, indicatorScope) {
-    IndicatorRuntimeCoordinator(controller, indicatorRuntime.indicatorRegistry, indicatorScope)
-}
-DisposableEffect(coordinator) { onDispose(coordinator::close) }
-val output by coordinator.state.collectAsState()
 
 KanvasChart(
-    state = state,
-    onViewportChange = controller::updateViewport,
-    indicatorSnapshot = output,
-    indicatorRegistrySnapshot = registrySnapshot,
-    indicatorRendererRegistry = indicatorRuntime.rendererRegistry,
-    indicatorRendererLifecycleHost = indicatorRuntime.indicatorRendererLifecycleHost,
+    state = chartState,
 )
 ```
 
-`rememberKlineIndicatorPluginChartRuntime` owns and closes its stateful
-instances. Non-Compose callers use `catalog.createChartRuntime()` and close
-the returned runtime. Binding renderers/factories are constrained to their
-own Core `(kind, id)`, so a catch-all implementation cannot steal another
-plugin or a fallback renderer. To update an existing plugin without replacing
-the chart runtime, call:
+Update typed parameters, visibility, and sub-pane order without touching a
+registry or calculation coordinator:
 
 ```kotlin
-indicatorRuntime.indicatorRegistry.upsert(
-    ma.bind(KlineMovingAverageIndicatorConfig(periods = listOf(10, 30))).definition,
+chartState.indicators.update(
+    ma,
+    KlineMovingAverageIndicatorConfig(periods = listOf(10, 30)),
 )
+chartState.indicators.toggle(volume.key)
+chartState.indicators.moveSubIndicator(volume.key, index = 0)
 ```
 
-`autoActivate`, `hide`, `show`, retained `keepAlive`, and the four-item
-sub-indicator FIFO live in `IndicatorRegistry`. MA and Volume are included as
-ready-to-use examples of the same public plugin API.
+`rememberKanvasChartState` owns and closes the calculation coordinator and
+stateful renderer instances. Binding renderers/factories are constrained to
+their own Core `(kind, id)`, so a catch-all implementation cannot steal another
+plugin or a fallback renderer. MA and Volume are included as ready-to-use
+examples of the same public plugin API.
 
-Use `indicatorRuntime.indicatorRegistry.show(key)` and `hide(key)` to control
-visibility. The default registry keeps at most four active sub indicators and
-evicts them in activation FIFO order.
+The default state keeps at most four active sub indicators and evicts them in
+activation FIFO order. Pass `subIndicatorCapacity` to
+`rememberKanvasChartState` to choose another limit. Low-level
+`rememberKlineIndicatorPluginChartRuntime` and `IndicatorRuntimeCoordinator`
+remain available for advanced ownership.
 
 `IndicatorRuntimeCoordinator` calculates off the UI thread, retains its last
 successful output while a replacement is pending, clears it on failure, and
@@ -446,17 +444,19 @@ the same non-default pane ID share one pane and use `zIndex` for paint order.
 
 ```kotlin
 KanvasChart(
-    // state/runtime/renderer arguments ...
-    paneConfig = KlinePaneRenderConfig(
-        mode = KlineLayoutMode.Fixed,
-        subPanes = listOf(
-            KlineSubPaneRenderConfig(
-                id = "macd",
-                preferredHeight = 100.dp,
-                minHeight = 64.dp,
-                padding = KlinePanePadding(topPx = 12f, bottomPx = 4f),
+    state = chartState,
+    config = KanvasChartConfig(
+        panes = KlinePaneRenderConfig(
+            mode = KlineLayoutMode.Fixed,
+            subPanes = listOf(
+                KlineSubPaneRenderConfig(
+                    id = "macd",
+                    preferredHeight = 100.dp,
+                    minHeight = 64.dp,
+                    padding = KlinePanePadding(topPx = 12f, bottomPx = 4f),
+                ),
+                KlineSubPaneRenderConfig(id = "rsi", preferredHeight = 80.dp),
             ),
-            KlineSubPaneRenderConfig(id = "rsi", preferredHeight = 80.dp),
         ),
     ),
 )
@@ -474,7 +474,8 @@ the Android-example `Volume` calculator with one `volume` column as bars, then
 uses generic lines for non-empty Computed output. A Direct/External renderer
 can draw with `output == null` and optionally provide `visibleValueRange`, so
 business markers do not depend on a precompute pass. Put host renderers before
-the defaults when they should own a declaration:
+the defaults when they should own a declaration. This advanced integration
+intentionally uses the lower-level chart overload:
 
 ```kotlin
 val rendererRegistry = remember {
@@ -626,4 +627,3 @@ Portal OSSRH Staging API and read `MAVEN_CENTRAL_USERNAME`,
 equivalent Gradle properties). The signing key is loaded in memory; release
 secrets are not required for local builds. Portal deployment finalization is a
 release-operator step after the signed upload.
-

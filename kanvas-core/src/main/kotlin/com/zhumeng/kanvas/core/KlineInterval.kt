@@ -47,5 +47,19 @@ data class KlineInterval(
 
     companion object {
         val Invalid = KlineInterval(0, KlineTimeUnit.Millisecond)
+
+        fun seconds(value: Int): KlineInterval = KlineInterval(value, KlineTimeUnit.Second).requireValid()
+
+        fun minutes(value: Int): KlineInterval = KlineInterval(value, KlineTimeUnit.Minute).requireValid()
+
+        fun hours(value: Int): KlineInterval = KlineInterval(value, KlineTimeUnit.Hour).requireValid()
+
+        fun days(value: Int): KlineInterval = KlineInterval(value, KlineTimeUnit.Day).requireValid()
+
+        fun weeks(value: Int): KlineInterval = KlineInterval(value, KlineTimeUnit.Week).requireValid()
+
+        private fun KlineInterval.requireValid(): KlineInterval = apply {
+            require(isValid) { "K-line interval multiplier must be positive" }
+        }
     }
 }

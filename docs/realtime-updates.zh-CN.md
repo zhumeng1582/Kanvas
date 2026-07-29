@@ -12,7 +12,7 @@
 宿主应在同一周期内持续调用 `updateLatest` 替换最新 K 线；进入下一个周期时，再传入更大的时间戳插入新 K 线。不要每 300ms 创建一根新 K 线。
 
 ```kotlin
-controller.updateLatest(spec, realtimeCandle)
+chartState.updateLatest(realtimeCandle)
 ```
 
 `realtimeCandle` 必须保留当前周期的 `open`，并累计更新 `high`、`low`、`close`、`volume` 和 `turnover`。
@@ -28,14 +28,17 @@ Kanvas 提供两种 `KlineIndicatorRefreshPolicy`：
 
 交易类 App 通常推荐 `OnCandleBoundary`：最新价格和蜡烛继续更新，但 MA、EMA、BOLL、MACD、KDJ、RSI 等指标在当前 K 线内保持稳定。
 
+标准 API 在创建状态时选择策略：
+
 ```kotlin
-val coordinator = IndicatorRuntimeCoordinator(
-    controller = controller,
-    registry = indicatorRegistry,
-    scope = scope,
-    refreshPolicy = KlineIndicatorRefreshPolicy.OnCandleBoundary,
+val chartState = rememberKanvasChartState(
+    indicatorCatalog = catalog,
+    indicatorRefreshPolicy = KlineIndicatorRefreshPolicy.OnCandleBoundary,
 )
 ```
+
+需要分别持有 Controller 和 Registry 的高级接入仍可直接创建
+`IndicatorRuntimeCoordinator`。
 
 该策略不会发布过期状态。Kanvas 会把上一份指标输出重新绑定到最新的 Controller revision，使渲染器继续显示同一组指标值，而不是先清空再出现。
 
@@ -68,17 +71,17 @@ val renderConfig = KlineChartRenderConfig(
 ## 300ms 更新示例
 
 ```kotlin
-LaunchedEffect(controller, spec) {
+LaunchedEffect(chartState, spec) {
     while (true) {
         delay(300)
-        val latest = controller.state.value.series.latest ?: continue
+        val latest = chartState.state.value.series.latest ?: continue
         val bucket = currentExchangeTimeMillis.toIntervalBucket(intervalMillis)
 
         if (bucket == latest.timestampMillis) {
-            controller.updateLatest(spec, aggregateCurrentCandle(latest, latestTick))
+            chartState.updateLatest(aggregateCurrentCandle(latest, latestTick))
         } else if (bucket > latest.timestampMillis) {
-            controller.updateLatest(spec, latest.copy(confirmed = true))
-            controller.updateLatest(spec, createNextCandle(bucket, latest.close, latestTick))
+            chartState.updateLatest(latest.copy(confirmed = true))
+            chartState.updateLatest(createNextCandle(bucket, latest.close, latestTick))
         }
     }
 }

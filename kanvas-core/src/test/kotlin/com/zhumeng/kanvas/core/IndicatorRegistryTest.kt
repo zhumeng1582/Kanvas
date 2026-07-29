@@ -172,6 +172,23 @@ class IndicatorRegistryTest {
     }
 
     @Test
+    fun `active sub indicators can be reordered without changing residency`() {
+        val definitions = (1..3).map { index ->
+            definition("ordered_$index", IndicatorPlacement.Sub("pane_$index"))
+        }
+        val registry = IndicatorRegistry()
+        registry.mount(definitions, restoredActiveKeys = definitions.map(IndicatorDefinition::key))
+
+        val moved = registry.moveActiveSub(definitions[2].key, 0)
+
+        assertEquals(
+            listOf(definitions[2].key, definitions[0].key, definitions[1].key),
+            moved.activeSubKeys(),
+        )
+        assertTrue(definitions.all { moved.isActive(it.key) })
+    }
+
+    @Test
     fun `unregister forcibly clears active and retained state`() {
         val definition = definition("gone", IndicatorPlacement.Main, keepAlive = true)
         val registry = IndicatorRegistry()

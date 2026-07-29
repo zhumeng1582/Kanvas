@@ -40,12 +40,14 @@ val config = KlineMovingAverageIndicatorConfig(
         KlineIndicatorLineStyle(Color(0xFF8B62C9), widthPx = 3f),
     ),
 )
-indicatorRegistry.upsert(maPlugin.bind(config).definition)
+chartState.indicators.update(maPlugin, config)
 ```
 
 `KlineIndicatorLineStyle.visible` 控制单条输出；关闭的曲线不会绘制、不会进入 Top Tips，
-也不会影响该窗格的纵轴范围。`upsert` 保持指标身份不变，参数或线样式改变后会触发对应
-定义更新。整个指标的显示状态通过 `indicatorRegistry.show(key)` 和 `hide(key)` 控制。
+也不会影响该窗格的纵轴范围。`update` 保持指标身份不变，参数或线样式改变后会触发对应
+定义更新。整个指标的显示状态通过 `chartState.indicators.show(key)`、`hide(key)` 或
+`toggle(key)` 控制。
 
 示例界面实现位于 `example/.../IndicatorSettingsSheet.kt`，业务 App 可以替换视觉层，继续复用
-`IndicatorRegistry` 和类型安全的插件配置。
+`KanvasIndicatorState` 和类型安全的插件配置；需要自行持有运行时的项目仍可使用底层
+`IndicatorRegistry`。

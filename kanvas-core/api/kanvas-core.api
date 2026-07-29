@@ -306,6 +306,7 @@ public final class com/zhumeng/kanvas/core/IndicatorRegistry {
 	public final fun hide (Lcom/zhumeng/kanvas/core/IndicatorKey;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
 	public final fun mount (Ljava/lang/Iterable;Ljava/lang/Iterable;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
 	public static synthetic fun mount$default (Lcom/zhumeng/kanvas/core/IndicatorRegistry;Ljava/lang/Iterable;Ljava/lang/Iterable;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+	public final fun moveActiveSub (Lcom/zhumeng/kanvas/core/IndicatorKey;I)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
 	public final fun notifySpecChanged (Lcom/zhumeng/kanvas/core/KlineSpec;)Ljava/util/List;
 	public static synthetic fun notifySpecChanged$default (Lcom/zhumeng/kanvas/core/IndicatorRegistry;Lcom/zhumeng/kanvas/core/KlineSpec;ILjava/lang/Object;)Ljava/util/List;
 	public final fun register (Lcom/zhumeng/kanvas/core/IndicatorDefinition;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
@@ -672,7 +673,12 @@ public final class com/zhumeng/kanvas/core/KlineInterval {
 }
 
 public final class com/zhumeng/kanvas/core/KlineInterval$Companion {
+	public final fun days (I)Lcom/zhumeng/kanvas/core/KlineInterval;
 	public final fun getInvalid ()Lcom/zhumeng/kanvas/core/KlineInterval;
+	public final fun hours (I)Lcom/zhumeng/kanvas/core/KlineInterval;
+	public final fun minutes (I)Lcom/zhumeng/kanvas/core/KlineInterval;
+	public final fun seconds (I)Lcom/zhumeng/kanvas/core/KlineInterval;
+	public final fun weeks (I)Lcom/zhumeng/kanvas/core/KlineInterval;
 }
 
 public final class com/zhumeng/kanvas/core/KlineLoadingState : java/lang/Enum {

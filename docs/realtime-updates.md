@@ -9,14 +9,17 @@ Realtime delivery cadence and candle interval are different concepts. A feed may
 - `KlineIndicatorRefreshPolicy.EveryTick` recalculates after every candle revision.
 - `KlineIndicatorRefreshPolicy.OnCandleBoundary` keeps indicator values stable while the open candle is replaced and recalculates when a new candle is inserted.
 
+The standard API selects this policy when creating state:
+
 ```kotlin
-val coordinator = IndicatorRuntimeCoordinator(
-    controller = controller,
-    registry = indicatorRegistry,
-    scope = scope,
-    refreshPolicy = KlineIndicatorRefreshPolicy.OnCandleBoundary,
+val chartState = rememberKanvasChartState(
+    indicatorCatalog = catalog,
+    indicatorRefreshPolicy = KlineIndicatorRefreshPolicy.OnCandleBoundary,
 )
 ```
+
+Advanced integrations that own Controller and Registry separately can still
+construct `IndicatorRuntimeCoordinator` directly.
 
 The retained output is rebound to the current controller revision, so renderers continue to receive a valid snapshot. A new timestamp/series size, spec or registry change, first load, full replacement, or explicit `retry()` still calculates fresh output.
 

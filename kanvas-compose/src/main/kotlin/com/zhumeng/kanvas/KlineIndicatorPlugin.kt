@@ -149,6 +149,9 @@ class KlineIndicatorPluginCatalog private constructor(
     )
 
     companion object {
+        /** Empty catalog used by the high-level chart state when indicators are not needed. */
+        val Empty: KlineIndicatorPluginCatalog = KlineIndicatorPluginCatalog(emptyList())
+
         fun of(bindings: Iterable<KlineIndicatorPluginBinding>): KlineIndicatorPluginCatalog {
             val values = bindings.toList()
             require(values.map { it.definition.key }.distinct().size == values.size) {

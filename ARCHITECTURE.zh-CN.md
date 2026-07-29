@@ -4,9 +4,10 @@
 
 ## 架构概览
 
-Kanvas 由领域核心、Compose 图表、绘图能力和示例宿主组成。业务数据从
-`KlineController` 进入不可变 UI 状态，指标运行时基于同一份 K 线序列生成带版本标识的计算
-快照，`KanvasChart` 再将行情、指标、绘图和交互状态组织成最终 Canvas 画面。
+Kanvas 由领域核心、Compose 图表、绘图能力和示例宿主组成。普通应用通过
+`KanvasChartState` Facade 更新行情、指标和画线；Facade 内部将业务数据交给
+`KlineController`，指标运行时基于同一份 K 线序列生成带版本标识的计算快照，
+`KanvasChart` 再将行情、指标、绘图和交互状态组织成最终 Canvas 画面。
 
 ```mermaid
 flowchart TD
@@ -15,7 +16,10 @@ flowchart TD
     Compose --> Drawing[":kanvas-drawing\n绘图模型、工具与控制器"]
     Drawing --> Core
 
-    Market["行情数据"] --> Controller["KlineController"]
+    Market["行情数据"] --> Facade["KanvasChartState\n标准三方库入口"]
+    Facade --> Controller["KlineController"]
+    Facade --> Registry
+    Facade --> DrawingController
     Controller --> UiState["StateFlow<KlineUiState>"]
     UiState --> Chart["KanvasChart"]
     Registry["IndicatorRegistry"] --> Runtime["IndicatorRuntimeCoordinator"]
@@ -29,6 +33,17 @@ flowchart TD
 模块依赖保持单向：宿主依赖 Compose，Compose 依赖 Core 并接入 Drawing，Drawing 只依赖
 Core。Core 不依赖 Android 或 Compose。
 
+### 两层公开 API
+
+- 标准 API：`rememberKanvasChartState`、接收 `KanvasChartState` 的 `KanvasChart`、
+  `KanvasChartConfig`、`KanvasChartCallbacks`。它负责视口回传、分页请求、指标协调器、
+  Renderer 生命周期和 DrawingController，适合绝大多数三方库使用者。
+- 高级 API：`KlineController`、接收 `KlineUiState` 的 `KanvasChart`、
+  `IndicatorRegistry`、`IndicatorRuntimeCoordinator` 和 Renderer SPI。它保留给需要自行拆分
+  生命周期、接入非 Compose 状态容器或实现底层插件的项目。
+
+标准 API 只封装和编排现有底层对象，不复制第二套行情、指标或绘制状态。
+
 ## 数据模型与约定
 
 - `KlineCandle` 表示单根 K 线，包含时间戳、OHLC、成交量、成交额和确认状态。
@@ -37,11 +52,12 @@ Core。Core 不依赖 Android 或 Compose。
 - 时间戳统一使用毫秒。交易所响应排序、分页边界去重和重叠数据修正由宿主适配层完成。
 - UI 与指标运行时通过不可变快照传递状态，避免渲染期间读取可变行情集合。
 
-`KlineController` 对数据提供三类明确操作：
+标准 Facade 对外提供语义化操作，并委托给 `KlineController`：
 
 | 场景 | 操作 | 结果 |
 | --- | --- | --- |
-| 首次加载或切换交易对 | `replaceAll` | 替换当前完整序列 |
+| 首次加载或切换交易对 | `setMarket` | 选择市场并替换当前完整序列 |
+| 完整刷新 | `setData` | 替换已选择市场的完整序列 |
 | 实时行情 | `updateLatest` | 更新当前最新 K 线或插入新周期 K 线 |
 | 历史分页 | `completeLoadMore` | 在序列尾部追加更早的数据 |
 
@@ -62,7 +78,8 @@ Core 中的视口数学和指标计算可直接运行 JVM 单元测试。
 
 ## Compose 图表与渲染管线
 
-`kanvas-compose` 提供 `KanvasChart` 及其配置、布局、交互和绘制实现。一次绘制按以下信息组织：
+`kanvas-compose` 提供标准 Facade、`KanvasChart` 及其配置、布局、交互和绘制实现。
+一次绘制按以下信息组织：
 
 1. 根据 `KlineUiState` 和物理画布宽度计算可见 K 线索引区间。
 2. 根据主图价格、可选主图指标和纵轴策略计算数值范围。
@@ -72,6 +89,8 @@ Core 中的视口数学和指标计算可直接运行 JVM 单元测试。
 
 主要公开配置：
 
+- `KanvasChartConfig`：标准 API 的集中配置入口，组合样式、渲染、窗格、时间轴和画线配置。
+- `KanvasChartCallbacks`：布局、分页意图、Cross、双击和不支持指标的集中观察入口。
 - `KlineChartStyle`：背景、网格、涨跌色、文字、提示框和指标色板。
 - `KlineChartRenderConfig`：视口、手势、纵轴、网格、loading、倒计时和 Overlay 行为。
 - `KlinePaneRenderConfig`：主图区及副图列表。

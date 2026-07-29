@@ -306,6 +306,23 @@ class IndicatorRegistry(
         )
     }
 
+    /**
+     * Moves one active sub indicator to [index] without hiding or recreating it.
+     * The active-sub order is also the default physical pane order.
+     */
+    fun moveActiveSub(key: IndicatorKey, index: Int): IndicatorRegistrySnapshot = synchronized(lock) {
+        require(index >= 0) { "Sub indicator index must not be negative" }
+        val definition = registrations[key] ?: return@synchronized mutableState.value
+        val canonicalKey = definition.key
+        val oldIndex = activeSub.indexOf(canonicalKey)
+        if (oldIndex < 0) return@synchronized mutableState.value
+        val targetIndex = index.coerceAtMost(activeSub.lastIndex)
+        if (oldIndex == targetIndex) return@synchronized mutableState.value
+        activeSub.removeAt(oldIndex)
+        activeSub.add(targetIndex, canonicalKey)
+        publishLocked(emptyList(), forceSnapshot = true)
+    }
+
     /** Removes the declaration and forcibly discards active or retained state. */
     fun unregister(key: IndicatorKey): IndicatorRegistrySnapshot = synchronized(lock) {
         val definition = registrations.remove(key) ?: return@synchronized mutableState.value
