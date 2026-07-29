@@ -565,6 +565,7 @@ public final class com/zhumeng/kanvas/core/KlineController {
 	public final fun moveToDateTime (J)Lcom/zhumeng/kanvas/core/KlineUiState;
 	public final fun moveToInitialPosition ()Lcom/zhumeng/kanvas/core/KlineUiState;
 	public final fun panBy (F)Lcom/zhumeng/kanvas/core/KlineUiState;
+	public final fun replaceAll (Lcom/zhumeng/kanvas/core/KlineSpec;Lcom/zhumeng/kanvas/core/KlineSeries;)Lcom/zhumeng/kanvas/core/KlineDataResult;
 	public final fun replaceAll (Lcom/zhumeng/kanvas/core/KlineSpec;Ljava/util/List;)Lcom/zhumeng/kanvas/core/KlineDataResult;
 	public final fun requestLoadMore (Z)Z
 	public static synthetic fun requestLoadMore$default (Lcom/zhumeng/kanvas/core/KlineController;ZILjava/lang/Object;)Z

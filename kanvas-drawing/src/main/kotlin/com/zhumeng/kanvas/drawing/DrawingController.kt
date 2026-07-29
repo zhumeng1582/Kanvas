@@ -78,6 +78,7 @@ class DrawingController(
         prepare(type, config.drawLine)
 
     fun updatePointer(position: Offset?) {
+        if (snapshot.pointer == position) return
         snapshot = snapshot.copy(pointer = position)
     }
 
@@ -329,8 +330,18 @@ class DrawingController(
         state: DrawingState,
         pointer: Offset? = snapshot.pointer,
     ) {
+        val currentIndex = snapshot.overlays.indexOfFirst { it.id == overlay.id }
+        if (currentIndex < 0) return
+        val previous = snapshot.overlays[currentIndex]
+        val overlays = snapshot.overlays.toMutableList().apply {
+            this[currentIndex] = overlay
+            // Point and line-style drags preserve z order. Only explicit
+            // reordering (or a custom transform that changes zIndex) pays for
+            // sorting the complete overlay collection.
+            if (previous.zIndex != overlay.zIndex) sortBy(DrawingOverlay::zIndex)
+        }
         snapshot = snapshot.copy(
-            overlays = snapshot.overlays.map { if (it.id == overlay.id) overlay else it }.sortedBy(DrawingOverlay::zIndex),
+            overlays = overlays,
             state = state,
             pointer = pointer,
         )

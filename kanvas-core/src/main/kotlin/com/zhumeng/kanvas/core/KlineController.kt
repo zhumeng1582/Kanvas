@@ -119,12 +119,22 @@ class KlineController(
     fun replaceAll(
         spec: KlineSpec,
         candles: List<KlineCandle>,
+    ): KlineDataResult = replaceAll(spec, KlineSeries.of(candles))
+
+    /**
+     * Publishes an already validated immutable series.
+     *
+     * Hosts with very large initial snapshots can construct [series] on a
+     * background dispatcher and keep validation/copying off the UI thread.
+     */
+    fun replaceAll(
+        spec: KlineSpec,
+        series: KlineSeries,
     ): KlineDataResult = synchronized(lock) {
         val current = mutableState.value
         if (current.spec?.key != spec.key) {
             val cached = cache[spec.key]
                 ?: return KlineDataResult(KlineDataDisposition.IgnoredInactiveSpec)
-            val series = KlineSeries.of(candles)
             val update = KlineSeriesUpdateResult(
                 series = series,
                 changedRange = IndexRange(0, maxOf(cached.series.size, series.size)),
@@ -133,7 +143,6 @@ class KlineController(
             return KlineDataResult(KlineDataDisposition.CachedInactiveSpec, update)
         }
 
-        val series = KlineSeries.of(candles)
         val nextViewport = resetOrClampViewport(
             series = series,
             viewport = current.viewport,

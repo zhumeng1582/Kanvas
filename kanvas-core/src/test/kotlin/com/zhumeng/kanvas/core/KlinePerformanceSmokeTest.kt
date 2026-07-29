@@ -147,6 +147,38 @@ class KlinePerformanceSmokeTest {
         assertTrue(elapsed < 5_000, "Realtime incremental budget exceeded: ${elapsed}ms")
     }
 
+    @Test
+    fun `large series edge updates stay structural`() {
+        var series = performanceSeries(100_000)
+        val elapsed = measureTimeMillis {
+            repeat(1_000) { update ->
+                val nextTimestamp = checkNotNull(series.latest).timestampMillis + 60_000L
+                val value = 20_000.0 + update
+                series = series.updateLatest(
+                    KlineCandle(nextTimestamp, value, value + 2.0, value - 2.0, value + 1.0, value),
+                ).series
+                series = series.updateLatest(
+                    KlineCandle(nextTimestamp, value, value + 2.0, value - 2.0, value + 1.5, value),
+                ).series
+            }
+            repeat(100) { page ->
+                val firstTimestamp = checkNotNull(series.oldest).timestampMillis - 60_000L
+                val incoming = List(100) { index ->
+                    val timestamp = firstTimestamp - index * 60_000L
+                    val value = 5_000.0 - page - index
+                    KlineCandle(timestamp, value, value + 2.0, value - 2.0, value + 1.0, value)
+                }
+                series = series.appendOlder(incoming).series
+            }
+            repeat(10_000) { lookup ->
+                series[(lookup * 11) % series.size]
+            }
+        }
+
+        assertEquals(111_000, series.size)
+        assertTrue(elapsed < 2_000, "Large-series structural update budget exceeded: ${elapsed}ms")
+    }
+
     private fun performanceSeries(size: Int): KlineSeries =
         KlineSeries.of(
             List(size) { index ->

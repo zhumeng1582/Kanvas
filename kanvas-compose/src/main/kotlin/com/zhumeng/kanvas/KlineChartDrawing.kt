@@ -1434,20 +1434,26 @@ internal fun DrawScope.drawKlineTextArea(
     drawableRect: Rect? = null,
 ): Rect {
     val textStyle = config.toComposeTextStyle(fallbackTextColor)
+    val annotatedText = AnnotatedString(text)
     val naturalLayout = textMeasurer.measure(
-        text = AnnotatedString(text),
+        text = annotatedText,
         style = textStyle,
         maxLines = config.maxLines,
         overflow = TextOverflow.Ellipsis,
     )
     val contentWidth = config.resolveContentWidth(naturalLayout.size.width.toFloat(), density)
-    val layout = textMeasurer.measure(
-        text = AnnotatedString(text),
-        style = textStyle,
-        constraints = Constraints.fixedWidth(contentWidth.roundToInt().coerceAtLeast(1)),
-        maxLines = config.maxLines,
-        overflow = TextOverflow.Ellipsis,
-    )
+    val fixedWidth = contentWidth.roundToInt().coerceAtLeast(1)
+    val layout = if (fixedWidth == naturalLayout.size.width) {
+        naturalLayout
+    } else {
+        textMeasurer.measure(
+            text = annotatedText,
+            style = textStyle,
+            constraints = Constraints.fixedWidth(fixedWidth),
+            maxLines = config.maxLines,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
     val paddingLeft = logicalPx(config.padding.leftPx)
     val paddingTop = logicalPx(config.padding.topPx)
     val width = contentWidth + paddingLeft + logicalPx(config.padding.rightPx)

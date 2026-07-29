@@ -586,9 +586,13 @@ fun KanvasChart(
      */
     verticalZoomExitContent: (@Composable (onExit: () -> Unit) -> Unit)? = null,
 ) {
-    val textMeasurer = rememberTextMeasurer()
+    // A chart frame commonly contains more than the default eight distinct
+    // axis, time, Tips, and Cross strings. Retain enough layouts to avoid
+    // evicting and remeasuring the same labels on every drag frame.
+    val textMeasurer = rememberTextMeasurer(cacheSize = 64)
     val orderMarkerIndex = remember(orderMarkers) { KlineOrderMarkerIndex(orderMarkers) }
     val defaultTimeLabelFormatter = remember { DefaultKlineTimeLabelFormatter(Locale.getDefault()) }
+    val drawingTimeLabelFormatter = remember { SimpleDateFormat("M/d HH:mm", Locale.getDefault()) }
     val appliedTimeLabelFormatter: KlineTimeLabelFormatter = timeLabelFormatter
         ?: { candle, interval -> defaultTimeLabelFormatter.format(candle, interval) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -2431,8 +2435,7 @@ fun KanvasChart(
                             val resolvedPoint = point ?: return@forEach
                             val position = drawingSpace.project(resolvedPoint) ?: return@forEach
                             drawKlineTextArea(
-                                text = SimpleDateFormat("M/d HH:mm", Locale.getDefault())
-                                    .format(Date(resolvedPoint.timestampMillis)),
+                                text = drawingTimeLabelFormatter.format(Date(resolvedPoint.timestampMillis)),
                                 anchor = Offset(position.x, timePane.plotRect.top),
                                 horizontalAnchor = KlineTextAreaHorizontalAnchor.Center,
                                 verticalAnchor = KlineTextAreaVerticalAnchor.Top,
@@ -2515,8 +2518,7 @@ fun KanvasChart(
                     )
                     layout.timePane?.let { timePane ->
                         drawKlineTextArea(
-                            text = SimpleDateFormat("M/d HH:mm", Locale.getDefault())
-                                .format(Date(pointerPoint.timestampMillis)),
+                            text = drawingTimeLabelFormatter.format(Date(pointerPoint.timestampMillis)),
                             anchor = Offset(pointer.x, timePane.plotRect.top),
                             horizontalAnchor = KlineTextAreaHorizontalAnchor.Center,
                             verticalAnchor = KlineTextAreaVerticalAnchor.Top,

@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class KlineSeriesTest {
     @Test
@@ -75,6 +76,29 @@ class KlineSeriesTest {
         assertFailsWith<IllegalArgumentException> {
             prepended.series.updateLatest(candle(250L))
         }
+    }
+
+    @Test
+    fun `many edge updates preserve random access and binary timestamp lookup`() {
+        var series = KlineSeries.of((100L downTo 1L).map(::candle))
+        repeat(1_000) { offset ->
+            series = series.updateLatest(candle(101L + offset)).series
+            // Exercise the common sequence of many realtime replacements
+            // between candle boundaries without building wrapper chains.
+            series = series.updateLatest(candle(101L + offset, close = offset.toDouble())).series
+        }
+        repeat(10) { page ->
+            val newest = -page * 100L
+            val incoming = (newest downTo newest - 99L).map(::candle)
+            series = series.appendOlder(incoming).series
+        }
+
+        assertEquals(2_100, series.size)
+        assertEquals(1_100L, series.latest?.timestampMillis)
+        assertEquals(-999L, series.oldest?.timestampMillis)
+        assertEquals(1_099L, series[1].timestampMillis)
+        assertEquals(1_000, series.indexAtOrBefore(100L))
+        assertTrue(series.candles is RandomAccess)
     }
 
     @Test

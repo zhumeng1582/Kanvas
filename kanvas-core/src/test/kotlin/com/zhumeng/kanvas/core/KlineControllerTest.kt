@@ -58,6 +58,18 @@ class KlineControllerTest {
     }
 
     @Test
+    fun `prevalidated series can be published without rebuilding it`() {
+        val controller = KlineController()
+        val btc = spec("BTC-USDT")
+        val prepared = KlineSeries.of(listOf(candle(300L), candle(200L), candle(100L)))
+        controller.select(btc)
+
+        controller.replaceAll(btc, prepared)
+
+        assertTrue(controller.state.value.series === prepared)
+    }
+
+    @Test
     fun `late result for inactive spec is ignored`() {
         val controller = KlineController()
         val btc = spec("BTC-USDT")

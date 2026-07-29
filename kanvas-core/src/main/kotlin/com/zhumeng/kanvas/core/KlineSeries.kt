@@ -15,7 +15,7 @@ import kotlin.math.floor
  */
 private class LatestReplacedCandleList(
     source: List<KlineCandle>,
-    private val latest: KlineCandle,
+    val latest: KlineCandle,
 ) : AbstractList<KlineCandle>(), RandomAccess {
     val tailSource: List<KlineCandle> =
         (source as? LatestReplacedCandleList)?.tailSource ?: source
@@ -25,6 +25,79 @@ private class LatestReplacedCandleList(
     override fun get(index: Int): KlineCandle {
         if (index !in indices) throw IndexOutOfBoundsException("index=$index, size=$size")
         return if (index == 0) latest else tailSource[index]
+    }
+}
+
+/**
+ * Immutable segmented storage for structural updates at either edge.
+ *
+ * A market candle boundary and a historical page used to copy the complete
+ * series through `listOf(candle) + candles` / `candles + incoming`. Keeping
+ * immutable segments makes both operations proportional to the segment count
+ * instead of the candle count while preserving random-access List semantics.
+ */
+private class SegmentedCandleList private constructor(
+    private val segments: List<List<KlineCandle>>,
+    private val cumulativeSizes: IntArray,
+) : AbstractList<KlineCandle>(), RandomAccess {
+    override val size: Int = cumulativeSizes.lastOrNull() ?: 0
+
+    override fun get(index: Int): KlineCandle {
+        if (index !in indices) throw IndexOutOfBoundsException("index=$index, size=$size")
+        var low = 0
+        var high = cumulativeSizes.lastIndex
+        while (low < high) {
+            val middle = low + ((high - low) ushr 1)
+            if (index < cumulativeSizes[middle]) high = middle else low = middle + 1
+        }
+        val segmentStart = if (low == 0) 0 else cumulativeSizes[low - 1]
+        return segments[low][index - segmentStart]
+    }
+
+    fun prepend(candle: KlineCandle): SegmentedCandleList {
+        val first = segments.firstOrNull()
+        val nextSegments = if (first != null && first.size < PrefixSegmentCapacity) {
+            listOf(listOf(candle) + first) + segments.drop(1)
+        } else {
+            listOf(listOf(candle)) + segments
+        }
+        return create(nextSegments)
+    }
+
+    fun append(page: List<KlineCandle>): SegmentedCandleList =
+        create(segments + listOf(page))
+
+    private fun replaceLatest(candle: KlineCandle): SegmentedCandleList {
+        val first = segments.first()
+        val nextSegments = if (first.size <= PrefixSegmentCapacity) {
+            val replaced = first.toMutableList().apply { this[0] = candle }
+            listOf(replaced) + segments.drop(1)
+        } else {
+            // Do not copy a large original snapshot merely to replace index 0.
+            listOf(listOf(candle), first.subList(1, first.size)) + segments.drop(1)
+        }
+        return create(nextSegments)
+    }
+
+    companion object {
+        private const val PrefixSegmentCapacity = 64
+
+        fun from(source: List<KlineCandle>): SegmentedCandleList =
+            when (source) {
+                is SegmentedCandleList -> source
+                is LatestReplacedCandleList -> from(source.tailSource).replaceLatest(source.latest)
+                else -> create(listOf(source))
+            }
+
+        private fun create(segments: List<List<KlineCandle>>): SegmentedCandleList {
+            val nonEmpty = segments.filter(List<KlineCandle>::isNotEmpty)
+            var total = 0
+            val cumulative = IntArray(nonEmpty.size) { index ->
+                total += nonEmpty[index].size
+                total
+            }
+            return SegmentedCandleList(nonEmpty, cumulative)
+        }
     }
 }
 
@@ -65,7 +138,10 @@ class KlineSeries private constructor(
             "Older candle page must be strictly older than the current oldest candle"
         }
         val start = size
-        val appended = KlineSeries(candles + incoming)
+        // Copy only the incoming page. Existing immutable storage is retained.
+        val appended = KlineSeries(
+            SegmentedCandleList.from(candles).append(incoming.toList()),
+        )
         return KlineSeriesUpdateResult(appended, IndexRange(start, appended.size))
     }
 
@@ -88,7 +164,7 @@ class KlineSeries private constructor(
             val updated = LatestReplacedCandleList(candles, candle)
             return KlineSeriesUpdateResult(KlineSeries(updated), IndexRange(0, 1))
         }
-        val updated = KlineSeries(listOf(candle) + candles)
+        val updated = KlineSeries(SegmentedCandleList.from(candles).prepend(candle))
         return KlineSeriesUpdateResult(updated, IndexRange(0, updated.size))
     }
 
