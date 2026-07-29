@@ -576,6 +576,8 @@ fun KanvasChart(
     drawingController: DrawingController? = null,
     drawingConfig: DrawingRenderConfig = DrawingRenderConfig(),
     drawingMagnifierConfig: DrawingMagnifierConfig = DrawingMagnifierConfig(),
+    /** Native pointer-transparent watermark rendered inside the chart Canvas. */
+    watermarkConfig: KanvasWatermarkConfig? = null,
     /** Physical Canvas hit target used when `gesture.isManualSetZoomRect=true`. */
     verticalZoomHitRect: Rect? = null,
     /** Called only after a confirmed double tap; single-tap routes wait for the double-tap timeout. */
@@ -2000,8 +2002,14 @@ fun KanvasChart(
                 subPaneSpecs = indicatorPanePlan.subPaneSpecs,
             )
             drawRect(appliedStyle.background)
+            if (watermarkConfig?.layer == KanvasWatermarkLayer.BehindContent) {
+                drawKanvasWatermark(watermarkConfig, baseLayout, textMeasurer)
+            }
             val basePlotRect = baseLayout.mainPane.plotRect
             if (basePlotRect.width <= 0f || basePlotRect.height <= 0f || state.series.isEmpty) {
+                if (watermarkConfig?.layer == KanvasWatermarkLayer.AboveContent) {
+                    drawKanvasWatermark(watermarkConfig, baseLayout, textMeasurer)
+                }
                 return@Canvas
             }
             val hideMainIndicators = hideMainIndicatorsInLineChartMode && appliedChartType is KlineChartType.Line
@@ -2605,6 +2613,9 @@ fun KanvasChart(
                 activeBoundaryY = activeResizeBoundaryY,
                 mode = appliedPaneConfig.mode,
             )
+            if (watermarkConfig?.layer == KanvasWatermarkLayer.AboveContent) {
+                drawKanvasWatermark(watermarkConfig, layout, textMeasurer)
+            }
         }
         if (slotContext != null && mainForegroundContent != null) {
             Box(Modifier.layoutId("main-foreground")) {

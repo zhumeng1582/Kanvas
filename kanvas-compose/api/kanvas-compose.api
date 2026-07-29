@@ -30,13 +30,14 @@ public final class com/zhumeng/kanvas/KanvasChartCallbacks {
 
 public final class com/zhumeng/kanvas/KanvasChartConfig {
 	public static final field $stable I
-	public synthetic fun <init> (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public synthetic fun <init> (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Lcom/zhumeng/kanvas/KanvasWatermarkConfig;ZILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Lcom/zhumeng/kanvas/KanvasWatermarkConfig;ZLkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun component1 ()Lcom/zhumeng/kanvas/KlineChartType;
 	public final fun component10 ()Lcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;
 	public final fun component11 ()Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;
 	public final fun component12 ()Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;
-	public final fun component13 ()Z
+	public final fun component13 ()Lcom/zhumeng/kanvas/KanvasWatermarkConfig;
+	public final fun component14 ()Z
 	public final fun component2 ()I
 	public final fun component3 ()Lcom/zhumeng/kanvas/KlineChartStyle;
 	public final fun component4 ()Lcom/zhumeng/kanvas/KlineChartRenderConfig;
@@ -45,8 +46,8 @@ public final class com/zhumeng/kanvas/KanvasChartConfig {
 	public final fun component7 ()Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;
 	public final fun component8-D9Ej5fM ()F
 	public final fun component9-D9Ej5fM ()F
-	public final fun copy-KBW6s6s (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Z)Lcom/zhumeng/kanvas/KanvasChartConfig;
-	public static synthetic fun copy-KBW6s6s$default (Lcom/zhumeng/kanvas/KanvasChartConfig;Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasChartConfig;
+	public final fun copy--PgQT0M (Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Lcom/zhumeng/kanvas/KanvasWatermarkConfig;Z)Lcom/zhumeng/kanvas/KanvasChartConfig;
+	public static synthetic fun copy--PgQT0M$default (Lcom/zhumeng/kanvas/KanvasChartConfig;Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;FFLcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Lcom/zhumeng/kanvas/KanvasWatermarkConfig;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasChartConfig;
 	public fun equals (Ljava/lang/Object;)Z
 	public final fun getAxisWidth-D9Ej5fM ()F
 	public final fun getBuiltInIndicators ()Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;
@@ -61,12 +62,13 @@ public final class com/zhumeng/kanvas/KanvasChartConfig {
 	public final fun getStyle ()Lcom/zhumeng/kanvas/KlineChartStyle;
 	public final fun getTimeAxis ()Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;
 	public final fun getTimeAxisHeight-D9Ej5fM ()F
+	public final fun getWatermark ()Lcom/zhumeng/kanvas/KanvasWatermarkConfig;
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
 }
 
 public final class com/zhumeng/kanvas/KanvasChartKt {
-	public static final fun KanvasChart-yyG3knc (Lcom/zhumeng/kanvas/core/KlineUiState;Lkotlin/jvm/functions/Function1;Landroidx/compose/ui/Modifier;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Ljava/util/List;Lcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;Lcom/zhumeng/kanvas/KlineIndicatorRendererRegistry;Lcom/zhumeng/kanvas/KlineIndicatorRendererLifecycleHost;Lkotlin/jvm/functions/Function1;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;Lkotlin/jvm/functions/Function2;FFLcom/zhumeng/kanvas/KlineCrossTooltipProvider;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function3;Lcom/zhumeng/kanvas/drawing/DrawingController;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Landroidx/compose/ui/geometry/Rect;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;IIIIII)V
+	public static final fun KanvasChart-d-c0rsk (Lcom/zhumeng/kanvas/core/KlineUiState;Lkotlin/jvm/functions/Function1;Landroidx/compose/ui/Modifier;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;Lcom/zhumeng/kanvas/KlineChartType;ILcom/zhumeng/kanvas/KlineChartStyle;Lcom/zhumeng/kanvas/KlineChartRenderConfig;Ljava/util/List;Lcom/zhumeng/kanvas/KlineOrderMarkerRenderConfig;Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;Lcom/zhumeng/kanvas/KlineIndicatorRendererRegistry;Lcom/zhumeng/kanvas/KlineIndicatorRendererLifecycleHost;Lkotlin/jvm/functions/Function1;Lcom/zhumeng/kanvas/KlinePaneRenderConfig;Lcom/zhumeng/kanvas/KlineBuiltInIndicatorConfiguration;Lcom/zhumeng/kanvas/KlineTimeAxisRenderConfig;Lkotlin/jvm/functions/Function2;FFLcom/zhumeng/kanvas/KlineCrossTooltipProvider;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function3;Lcom/zhumeng/kanvas/drawing/DrawingController;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;Lcom/zhumeng/kanvas/drawing/DrawingMagnifierConfig;Lcom/zhumeng/kanvas/KanvasWatermarkConfig;Landroidx/compose/ui/geometry/Rect;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;IIIIII)V
 }
 
 public final class com/zhumeng/kanvas/KanvasChartState {
@@ -122,6 +124,119 @@ public final class com/zhumeng/kanvas/KanvasIndicatorState {
 	public final fun update (Lcom/zhumeng/kanvas/KlineIndicatorPlugin;Lkotlin/jvm/functions/Function1;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
 	public final fun update (Lcom/zhumeng/kanvas/KlineIndicatorPluginBinding;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
 	public final fun updateDefinition (Lcom/zhumeng/kanvas/core/IndicatorKey;Lkotlin/jvm/functions/Function1;)Lcom/zhumeng/kanvas/core/IndicatorRegistrySnapshot;
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkConfig {
+	public static final field $stable I
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/KanvasWatermarkContent;Lcom/zhumeng/kanvas/KanvasWatermarkTarget;Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;Lcom/zhumeng/kanvas/KanvasWatermarkLayer;FFFFILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Lcom/zhumeng/kanvas/KanvasWatermarkContent;Lcom/zhumeng/kanvas/KanvasWatermarkTarget;Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;Lcom/zhumeng/kanvas/KanvasWatermarkLayer;FFFFLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Lcom/zhumeng/kanvas/KanvasWatermarkContent;
+	public final fun component2 ()Lcom/zhumeng/kanvas/KanvasWatermarkTarget;
+	public final fun component3 ()Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;
+	public final fun component4 ()Lcom/zhumeng/kanvas/KanvasWatermarkLayer;
+	public final fun component5 ()F
+	public final fun component6 ()F
+	public final fun component7-D9Ej5fM ()F
+	public final fun component8-D9Ej5fM ()F
+	public final fun copy-AWlRVLg (Lcom/zhumeng/kanvas/KanvasWatermarkContent;Lcom/zhumeng/kanvas/KanvasWatermarkTarget;Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;Lcom/zhumeng/kanvas/KanvasWatermarkLayer;FFFF)Lcom/zhumeng/kanvas/KanvasWatermarkConfig;
+	public static synthetic fun copy-AWlRVLg$default (Lcom/zhumeng/kanvas/KanvasWatermarkConfig;Lcom/zhumeng/kanvas/KanvasWatermarkContent;Lcom/zhumeng/kanvas/KanvasWatermarkTarget;Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;Lcom/zhumeng/kanvas/KanvasWatermarkLayer;FFFFILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasWatermarkConfig;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAlpha ()F
+	public final fun getContent ()Lcom/zhumeng/kanvas/KanvasWatermarkContent;
+	public final fun getHorizontalSpacing-D9Ej5fM ()F
+	public final fun getLayer ()Lcom/zhumeng/kanvas/KanvasWatermarkLayer;
+	public final fun getPlacement ()Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;
+	public final fun getRotationDegrees ()F
+	public final fun getTarget ()Lcom/zhumeng/kanvas/KanvasWatermarkTarget;
+	public final fun getVerticalSpacing-D9Ej5fM ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class com/zhumeng/kanvas/KanvasWatermarkContent {
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkContent$Image : com/zhumeng/kanvas/KanvasWatermarkContent {
+	public static final field $stable I
+	public synthetic fun <init> (Landroidx/compose/ui/graphics/ImageBitmap;FLandroidx/compose/ui/unit/Dp;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Landroidx/compose/ui/graphics/ImageBitmap;FLandroidx/compose/ui/unit/Dp;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Landroidx/compose/ui/graphics/ImageBitmap;
+	public final fun component2-D9Ej5fM ()F
+	public final fun component3-lTKBWiU ()Landroidx/compose/ui/unit/Dp;
+	public final fun copy-0rWvPGk (Landroidx/compose/ui/graphics/ImageBitmap;FLandroidx/compose/ui/unit/Dp;)Lcom/zhumeng/kanvas/KanvasWatermarkContent$Image;
+	public static synthetic fun copy-0rWvPGk$default (Lcom/zhumeng/kanvas/KanvasWatermarkContent$Image;Landroidx/compose/ui/graphics/ImageBitmap;FLandroidx/compose/ui/unit/Dp;ILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasWatermarkContent$Image;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBitmap ()Landroidx/compose/ui/graphics/ImageBitmap;
+	public final fun getHeight-lTKBWiU ()Landroidx/compose/ui/unit/Dp;
+	public final fun getWidth-D9Ej5fM ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkContent$Text : com/zhumeng/kanvas/KanvasWatermarkContent {
+	public static final field $stable I
+	public synthetic fun <init> (Ljava/lang/String;JJLandroidx/compose/ui/text/font/FontWeight;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public synthetic fun <init> (Ljava/lang/String;JJLandroidx/compose/ui/text/font/FontWeight;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2-0d7_KjU ()J
+	public final fun component3-XSAIIZE ()J
+	public final fun component4 ()Landroidx/compose/ui/text/font/FontWeight;
+	public final fun copy-F5cgmGc (Ljava/lang/String;JJLandroidx/compose/ui/text/font/FontWeight;)Lcom/zhumeng/kanvas/KanvasWatermarkContent$Text;
+	public static synthetic fun copy-F5cgmGc$default (Lcom/zhumeng/kanvas/KanvasWatermarkContent$Text;Ljava/lang/String;JJLandroidx/compose/ui/text/font/FontWeight;ILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasWatermarkContent$Text;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getColor-0d7_KjU ()J
+	public final fun getFontSize-XSAIIZE ()J
+	public final fun getFontWeight ()Landroidx/compose/ui/text/font/FontWeight;
+	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkLayer : java/lang/Enum {
+	public static final field AboveContent Lcom/zhumeng/kanvas/KanvasWatermarkLayer;
+	public static final field BehindContent Lcom/zhumeng/kanvas/KanvasWatermarkLayer;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/KanvasWatermarkLayer;
+	public static fun values ()[Lcom/zhumeng/kanvas/KanvasWatermarkLayer;
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkPlacement : java/lang/Enum {
+	public static final field Center Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;
+	public static final field Tiled Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;
+	public static fun values ()[Lcom/zhumeng/kanvas/KanvasWatermarkPlacement;
+}
+
+public abstract interface class com/zhumeng/kanvas/KanvasWatermarkTarget {
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkTarget$MainPane : com/zhumeng/kanvas/KanvasWatermarkTarget {
+	public static final field $stable I
+	public static final field INSTANCE Lcom/zhumeng/kanvas/KanvasWatermarkTarget$MainPane;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkTarget$SubPane : com/zhumeng/kanvas/KanvasWatermarkTarget {
+	public static final field $stable I
+	public fun <init> (Ljava/lang/String;)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun copy (Ljava/lang/String;)Lcom/zhumeng/kanvas/KanvasWatermarkTarget$SubPane;
+	public static synthetic fun copy$default (Lcom/zhumeng/kanvas/KanvasWatermarkTarget$SubPane;Ljava/lang/String;ILjava/lang/Object;)Lcom/zhumeng/kanvas/KanvasWatermarkTarget$SubPane;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getId ()Ljava/lang/String;
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/zhumeng/kanvas/KanvasWatermarkTarget$WholeChart : com/zhumeng/kanvas/KanvasWatermarkTarget {
+	public static final field $stable I
+	public static final field INSTANCE Lcom/zhumeng/kanvas/KanvasWatermarkTarget$WholeChart;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
 }
 
 public final class com/zhumeng/kanvas/KlineAvlIndicatorPlugin : com/zhumeng/kanvas/KlineIndicatorPlugin {

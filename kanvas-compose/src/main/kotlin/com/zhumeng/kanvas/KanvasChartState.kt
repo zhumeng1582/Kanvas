@@ -63,6 +63,7 @@ data class KanvasChartConfig(
     val orderMarkers: KlineOrderMarkerRenderConfig = KlineOrderMarkerRenderConfig(),
     val drawing: DrawingRenderConfig = DrawingRenderConfig(),
     val drawingMagnifier: DrawingMagnifierConfig = DrawingMagnifierConfig(),
+    val watermark: KanvasWatermarkConfig? = null,
     /** The high-level API returns to the latest edge after a confirmed double tap. */
     val resetToLatestOnDoubleTap: Boolean = true,
 )
@@ -346,6 +347,7 @@ fun KanvasChart(
         drawingController = state.drawingController,
         drawingConfig = config.drawing,
         drawingMagnifierConfig = config.drawingMagnifier,
+        watermarkConfig = config.watermark,
         verticalZoomHitRect = verticalZoomHitRect,
         onDoubleTap = {
             if (config.resetToLatestOnDoubleTap) state.moveToLatest()

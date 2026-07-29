@@ -89,7 +89,7 @@ Core 中的视口数学和指标计算可直接运行 JVM 单元测试。
 
 主要公开配置：
 
-- `KanvasChartConfig`：标准 API 的集中配置入口，组合样式、渲染、窗格、时间轴和画线配置。
+- `KanvasChartConfig`：标准 API 的集中配置入口，组合样式、渲染、窗格、时间轴、原生水印和画线配置。
 - `KanvasChartCallbacks`：布局、分页意图、Cross、双击和不支持指标的集中观察入口。
 - `KlineChartStyle`：背景、网格、涨跌色、文字、提示框和指标色板。
 - `KlineChartRenderConfig`：视口、手势、纵轴、网格、loading、倒计时和 Overlay 行为。

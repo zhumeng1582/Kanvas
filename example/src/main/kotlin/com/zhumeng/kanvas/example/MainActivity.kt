@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.zhumeng.kanvas.KanvasChart
 import com.zhumeng.kanvas.KanvasChartConfig
+import com.zhumeng.kanvas.KanvasWatermarkConfig
+import com.zhumeng.kanvas.KanvasWatermarkContent
 import com.zhumeng.kanvas.KlineChartStyle
 import com.zhumeng.kanvas.KlineChartType
 import com.zhumeng.kanvas.KlineIndicatorPluginCatalog
@@ -543,6 +545,13 @@ private fun ReferenceSample(
                     orderMarkers = orderMarkerConfig,
                     panes = KlinePaneRenderConfig(
                         subPanes = listOf(KlineSubPaneRenderConfig("volume", preferredHeight = 96.dp)),
+                    ),
+                    watermark = KanvasWatermarkConfig(
+                        content = KanvasWatermarkContent.Text(
+                            value = "KANVAS",
+                            color = chartStyle.textColor,
+                        ),
+                        alpha = 0.06f,
                     ),
                 ),
                 orderMarkers = sampleOrderMarkers,

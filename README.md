@@ -36,6 +36,7 @@ and testing only; production distribution requires your own signing key.
 
 - [Quick start](#quick-start)
 - [Theme and chart style](#theme-and-chart-style)
+- [Native watermarks](#native-watermarks)
 - [Layout and interaction](#layout-and-interaction)
 - [Data and pagination](#data-and-pagination)
 - [Order markers](#order-markers)
@@ -171,6 +172,38 @@ used by candles, volume bars, latest-price presentation, and other semantic
 chart elements. The example also maps them to `KlineOrderMarkerRenderConfig`
 so Buy follows the bullish color and Sell follows the bearish color. Hosts can
 therefore switch the complete convention from one shared bullish/bearish pair.
+
+## Native watermarks
+
+Set `KanvasChartConfig.watermark` to render a pointer-transparent watermark in
+the native chart Canvas. It does not require an outer overlay and does not
+replace the built-in loading presentation:
+
+```kotlin
+KanvasChart(
+    state = chartState,
+    config = KanvasChartConfig(
+        watermark = KanvasWatermarkConfig(
+            content = KanvasWatermarkContent.Text(
+                value = "ACME EXCHANGE",
+                color = style.textColor,
+            ),
+            target = KanvasWatermarkTarget.MainPane,
+            placement = KanvasWatermarkPlacement.Tiled,
+            layer = KanvasWatermarkLayer.BehindContent,
+            alpha = 0.08f,
+            rotationDegrees = -20f,
+        ),
+    ),
+)
+```
+
+Use `KanvasWatermarkContent.Image(bitmap)` for a bitmap logo; its height keeps
+the source aspect ratio unless explicitly configured. Targets include the whole
+chart, main pane, or `SubPane(id)`. `BehindContent` draws below the grid and
+market content, while `AboveContent` draws above candles, indicators, and
+drawings but remains below the loading overlay. Assign `null` to disable it at
+runtime.
 
 ## Layout and interaction
 

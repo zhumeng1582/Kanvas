@@ -33,6 +33,7 @@ Kanvas 是使用 Kotlin 和 Jetpack Compose 构建的 Android 原生 K 线图、
 
 - [快速开始](#快速开始)
 - [主题与图表样式](#主题与图表样式)
+- [原生水印](#原生水印)
 - [布局与交互](#布局与交互)
 - [数据加载与实时更新](#数据加载与实时更新)
 - [订单标记](#订单标记)
@@ -177,6 +178,35 @@ KanvasChart(
 `KlineChartStyle.bullish` / `bearish`；示例还将同一组颜色映射到
 `KlineOrderMarkerRenderConfig`，让 Buy 跟随上涨色、Sell 跟随下跌色。宿主只需维护一组
 统一的涨跌语义色，无需逐个修改 renderer。
+
+## 原生水印
+
+通过 `KanvasChartConfig.watermark` 可以直接在图表 Canvas 内绘制不拦截触摸的原生水印，
+不需要额外包裹 Overlay，也不会替换内置 Loading：
+
+```kotlin
+KanvasChart(
+    state = chartState,
+    config = KanvasChartConfig(
+        watermark = KanvasWatermarkConfig(
+            content = KanvasWatermarkContent.Text(
+                value = "ACME EXCHANGE",
+                color = darkStyle.textColor,
+            ),
+            target = KanvasWatermarkTarget.MainPane,
+            placement = KanvasWatermarkPlacement.Tiled,
+            layer = KanvasWatermarkLayer.BehindContent,
+            alpha = 0.08f,
+            rotationDegrees = -20f,
+        ),
+    ),
+)
+```
+
+图片 Logo 使用 `KanvasWatermarkContent.Image(bitmap)`；未指定高度时会保持图片宽高比。
+水印范围支持全图、主图或 `SubPane(id)` 指定副图。`BehindContent` 位于网格和行情内容下方，
+`AboveContent` 位于 K 线、指标及画线之上，但仍低于 Loading Overlay。运行时将配置改为
+`null` 即可关闭水印。
 
 ## 布局与交互
 
