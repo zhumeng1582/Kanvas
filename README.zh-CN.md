@@ -29,6 +29,11 @@ Kanvas 是使用 Kotlin 和 Jetpack Compose 构建的 Android 原生 K 线图、
   <img src="docs/images/kanvas-theme-dark-settings.png" alt="Kanvas 深色主题指标设置" width="300" />
 </p>
 
+<p align="center">
+  <img src="docs/images/kanvas-line.png" alt="Kanvas 普通分时图" width="300" />
+  <img src="docs/images/kanvas-line-up-down.png" alt="Kanvas 涨跌双色分时图" width="300" />
+</p>
+
 ## 目录
 
 - [快速开始](#快速开始)

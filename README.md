@@ -32,6 +32,11 @@ and testing only; production distribution requires your own signing key.
   <img src="docs/images/kanvas-theme-dark-settings.png" alt="Kanvas dark theme indicator settings" width="300" />
 </p>
 
+<p align="center">
+  <img src="docs/images/kanvas-line.png" alt="Kanvas normal intraday line chart" width="300" />
+  <img src="docs/images/kanvas-line-up-down.png" alt="Kanvas bullish and bearish intraday line chart" width="300" />
+</p>
+
 ## Contents
 
 - [Quick start](#quick-start)

@@ -64,6 +64,7 @@ import com.zhumeng.kanvas.KanvasWatermarkConfig
 import com.zhumeng.kanvas.KanvasWatermarkContent
 import com.zhumeng.kanvas.KlineChartStyle
 import com.zhumeng.kanvas.KlineChartType
+import com.zhumeng.kanvas.KlineLineStyle
 import com.zhumeng.kanvas.KlineIndicatorPluginCatalog
 import com.zhumeng.kanvas.KlineMovingAverageIndicatorConfig
 import com.zhumeng.kanvas.KlineMovingAverageIndicatorPlugin
@@ -372,6 +373,21 @@ private fun ReferenceSample(
                         style = MaterialTheme.typography.labelLarge,
                     )
                 }
+                ChartTypeAction(
+                    label = "K线",
+                    selected = chartType is KlineChartType.Bar,
+                    onClick = { chartType = KlineChartType.Bar() },
+                )
+                ChartTypeAction(
+                    label = "分时",
+                    selected = chartType == KlineChartType.Line(KlineLineStyle.Normal),
+                    onClick = { chartType = KlineChartType.Line(KlineLineStyle.Normal) },
+                )
+                ChartTypeAction(
+                    label = "涨跌分时",
+                    selected = chartType == KlineChartType.Line(KlineLineStyle.UpDown),
+                    onClick = { chartType = KlineChartType.Line(KlineLineStyle.UpDown) },
+                )
                 SampleToolbarAction(
                     label = "指标",
                     onClick = { showIndicatorSheet = true },
@@ -554,7 +570,7 @@ private fun ReferenceSample(
                         alpha = 0.06f,
                     ),
                 ),
-                orderMarkers = sampleOrderMarkers,
+                orderMarkers = if (chartType is KlineChartType.Bar) sampleOrderMarkers else emptyList(),
                 modifier = Modifier.fillMaxSize(),
             )
             if (showDrawingTools) {
@@ -862,6 +878,34 @@ private fun DrawingToolsIcon(color: Color) {
         drawLine(color, Offset(2f, size.height - 3f), Offset(size.width - 2f, 3f), stroke, cap = StrokeCap.Round)
         drawCircle(color, 2.3.dp.toPx(), Offset(2.5f, size.height - 3.5f), style = Stroke(stroke))
         drawCircle(color, 2.3.dp.toPx(), Offset(size.width - 2.5f, 3.5f), style = Stroke(stroke))
+    }
+}
+
+@Composable
+private fun ChartTypeAction(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 40.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = if (selected) colors.primaryContainer else colors.surfaceVariant,
+        contentColor = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                maxLines = 1,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
     }
 }
 
