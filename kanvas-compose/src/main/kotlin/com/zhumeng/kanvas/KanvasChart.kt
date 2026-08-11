@@ -66,6 +66,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
@@ -687,35 +688,57 @@ fun KanvasChart(
         }
     }
     val lifecycleEpoch = indicatorRendererLifecycleHost.observeInvalidationEpoch()
-    val indicatorPanePlan = indicatorSnapshot.resolveIndicatorPanePlan(
-        state = state,
-        registry = indicatorRegistrySnapshot,
-        renderers = activeRendererResolver,
-    )
-    val appliedPaneConfig = basePaneConfig.copy(
-        mainPreferredHeight = paneHeightOverridesPx["main"]
-            ?.let { (it / densityScale).dp }
-            ?: basePaneConfig.mainPreferredHeight,
-        mainPadding = basePaneConfig.mainPadding.copy(
-            topPx = basePaneConfig.mainPadding.topPx +
-                (verticalZoomInsetPx + verticalZoomShiftPx) / densityScale,
-            bottomPx = basePaneConfig.mainPadding.bottomPx +
-                (verticalZoomInsetPx - verticalZoomShiftPx) / densityScale,
-        ),
-        subPanes = buildList {
-            addAll(basePaneConfig.subPanes.filterNot { it.id in paneHeightOverridesPx })
-            paneHeightOverridesPx
-                .filterKeys { it != "main" }
-                .forEach { (id, heightPx) ->
-                    val fallback = basePaneConfig.paneFor(id)
-                    add(
-                        fallback.copy(
-                            preferredHeight = (heightPx / densityScale).dp,
-                        ),
-                    )
-                }
-        },
-    )
+    // Horizontal viewport changes do not affect indicator selection or pane
+    // ownership. Retain the immutable plan across drag frames and rebuild it
+    // only when its actual data/lifecycle inputs change.
+    val indicatorPanePlan = remember(
+        indicatorSnapshot,
+        indicatorRegistrySnapshot,
+        activeRendererResolver,
+        lifecycleEpoch,
+        state.series,
+        state.revision,
+        state.spec,
+    ) {
+        indicatorSnapshot.resolveIndicatorPanePlan(
+            state = state,
+            registry = indicatorRegistrySnapshot,
+            renderers = activeRendererResolver,
+        )
+    }
+    val indicatorSubPaneSpecs = remember(indicatorPanePlan) { indicatorPanePlan.subPaneSpecs }
+    val appliedPaneConfig = remember(
+        basePaneConfig,
+        paneHeightOverridesPx,
+        verticalZoomInsetPx,
+        verticalZoomShiftPx,
+        densityScale,
+    ) {
+        basePaneConfig.copy(
+            mainPreferredHeight = paneHeightOverridesPx["main"]
+                ?.let { (it / densityScale).dp }
+                ?: basePaneConfig.mainPreferredHeight,
+            mainPadding = basePaneConfig.mainPadding.copy(
+                topPx = basePaneConfig.mainPadding.topPx +
+                    (verticalZoomInsetPx + verticalZoomShiftPx) / densityScale,
+                bottomPx = basePaneConfig.mainPadding.bottomPx +
+                    (verticalZoomInsetPx - verticalZoomShiftPx) / densityScale,
+            ),
+            subPanes = buildList {
+                addAll(basePaneConfig.subPanes.filterNot { it.id in paneHeightOverridesPx })
+                paneHeightOverridesPx
+                    .filterKeys { it != "main" }
+                    .forEach { (id, heightPx) ->
+                        val fallback = basePaneConfig.paneFor(id)
+                        add(
+                            fallback.copy(
+                                preferredHeight = (heightPx / densityScale).dp,
+                            ),
+                        )
+                    }
+            },
+        )
+    }
     // Pointer input must not restart after every StateFlow viewport update. It
     // reads these remembered holders during the gesture instead.
     val currentState = rememberUpdatedState(state)
@@ -767,15 +790,24 @@ fun KanvasChart(
     // `Adapt` must be negotiated with the host's parent measurement. The
     // Canvas cannot resize its own Compose parent, so publish the exact
     // physical requested height whenever layout-affecting inputs change.
-    val reportedLayout = canvasSize.takeIf { it.width > 0 && it.height > 0 }?.let { size ->
-        resolveChartLayout(
-            canvasSize = Size(size.width.toFloat(), size.height.toFloat()),
-            axisWidthPx = axisWidthPx,
-            timeAxisHeightPx = timeAxisHeightPx,
-            densityScale = densityScale,
-            paneConfig = appliedPaneConfig,
-            subPaneSpecs = indicatorPanePlan.subPaneSpecs,
-        )
+    val reportedLayout = remember(
+        canvasSize,
+        axisWidthPx,
+        timeAxisHeightPx,
+        densityScale,
+        appliedPaneConfig,
+        indicatorSubPaneSpecs,
+    ) {
+        canvasSize.takeIf { it.width > 0 && it.height > 0 }?.let { size ->
+            resolveChartLayout(
+                canvasSize = Size(size.width.toFloat(), size.height.toFloat()),
+                axisWidthPx = axisWidthPx,
+                timeAxisHeightPx = timeAxisHeightPx,
+                densityScale = densityScale,
+                paneConfig = appliedPaneConfig,
+                subPaneSpecs = indicatorSubPaneSpecs,
+            )
+        }
     }
     // A parent may replace its callback after the layout has stabilized; send
     // the current value to the new observer as well as on geometry changes.
@@ -1967,18 +1999,84 @@ fun KanvasChart(
             }
             }
         }
-    val loadingMainRect = canvasSize.takeIf { size -> size.width > 0 && size.height > 0 }?.let { size ->
-        resolveChartLayout(
-            canvasSize = Size(size.width.toFloat(), size.height.toFloat()),
-            axisWidthPx = axisWidthPx,
-            timeAxisHeightPx = timeAxisHeightPx,
-            densityScale = densityScale,
-            paneConfig = appliedPaneConfig,
-            subPaneSpecs = indicatorPanePlan.subPaneSpecs,
-        ).mainPane.outerRect
+    val loadingMainRect = reportedLayout?.mainPane?.outerRect
+    // A new measure-policy instance invalidates Layout measurement even when
+    // only the horizontal viewport changed. Keep it stable until pane geometry
+    // inputs actually change.
+    val chartMeasurePolicy = remember(
+        appliedPaneConfig,
+        axisWidthPx,
+        timeAxisHeightPx,
+        densityScale,
+        indicatorSubPaneSpecs,
+    ) {
+        MeasurePolicy { measurables, constraints ->
+            val width = (if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth)
+                .coerceIn(constraints.minWidth, constraints.maxWidth)
+            val desiredHeight = if (appliedPaneConfig.mode == KlineLayoutMode.Adapt) {
+                resolveChartLayout(
+                    canvasSize = Size(width.toFloat(), 0f),
+                    axisWidthPx = axisWidthPx,
+                    timeAxisHeightPx = timeAxisHeightPx,
+                    densityScale = densityScale,
+                    paneConfig = appliedPaneConfig,
+                    subPaneSpecs = indicatorSubPaneSpecs,
+                ).requiredHeightPx.roundToInt()
+            } else if (constraints.hasBoundedHeight) {
+                constraints.maxHeight
+            } else {
+                constraints.minHeight
+            }
+            val height = desiredHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
+            val childConstraints = Constraints.fixed(width, height)
+            val measuredLayout = resolveChartLayout(
+                canvasSize = Size(width.toFloat(), height.toFloat()),
+                axisWidthPx = axisWidthPx,
+                timeAxisHeightPx = timeAxisHeightPx,
+                densityScale = densityScale,
+                paneConfig = appliedPaneConfig,
+                subPaneSpecs = indicatorSubPaneSpecs,
+            )
+            val mainRect = measuredLayout.mainPane.outerRect
+            val mainConstraints = Constraints.fixed(
+                mainRect.width.roundToInt().coerceAtLeast(0),
+                mainRect.height.roundToInt().coerceAtLeast(0),
+            )
+            val placeables = measurables.map { measurable ->
+                val isMainSlot = measurable.layoutId == "main-background" ||
+                    measurable.layoutId == "main-foreground"
+                val childConstraintsForId = when {
+                    isMainSlot -> mainConstraints
+                    measurable.layoutId == "vertical-zoom-exit" -> Constraints(
+                        maxWidth = mainRect.width.roundToInt().coerceAtLeast(0),
+                        maxHeight = mainRect.height.roundToInt().coerceAtLeast(0),
+                    )
+                    else -> childConstraints
+                }
+                Triple(measurable.measure(childConstraintsForId), isMainSlot, measurable.layoutId)
+            }
+            layout(width, height) {
+                placeables.forEach { (placeable, isMainSlot, layoutId) ->
+                    val x = when {
+                        isMainSlot -> mainRect.left.roundToInt()
+                        layoutId == "vertical-zoom-exit" ->
+                            (mainRect.right - placeable.width - 8f * densityScale).roundToInt()
+                        else -> 0
+                    }
+                    val y = when {
+                        isMainSlot -> mainRect.top.roundToInt()
+                        layoutId == "vertical-zoom-exit" ->
+                            (mainRect.bottom - placeable.height - 8f * densityScale).roundToInt()
+                        else -> 0
+                    }
+                    placeable.place(x, y)
+                }
+            }
+        }
     }
     Layout(
         modifier = chartModifier,
+        measurePolicy = chartMeasurePolicy,
         content = {
         val slotContext = reportedLayout?.let { layout ->
             KlineChartSlotContext(state = state, layout = layout, style = appliedStyle)
@@ -1993,13 +2091,15 @@ fun KanvasChart(
             // stateful renderers can request a new Canvas frame without
             // mutating Compose state from DrawScope.
             if (lifecycleEpoch < 0L) return@Canvas
-            val baseLayout = resolveChartLayout(
+            val baseLayout = reportedLayout?.takeIf {
+                canvasSize.width.toFloat() == size.width && canvasSize.height.toFloat() == size.height
+            } ?: resolveChartLayout(
                 canvasSize = size,
                 axisWidthPx = axisWidthPx,
                 timeAxisHeightPx = timeAxisHeightPx,
                 densityScale = densityScale,
                 paneConfig = appliedPaneConfig,
-                subPaneSpecs = indicatorPanePlan.subPaneSpecs,
+                subPaneSpecs = indicatorSubPaneSpecs,
             )
             drawRect(appliedStyle.background)
             if (watermarkConfig?.layer == KanvasWatermarkLayer.BehindContent) {
@@ -2665,66 +2765,5 @@ fun KanvasChart(
             }
         }
         },
-    ) { measurables, constraints ->
-        val width = (if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth)
-            .coerceIn(constraints.minWidth, constraints.maxWidth)
-        val desiredHeight = if (appliedPaneConfig.mode == KlineLayoutMode.Adapt) {
-            resolveChartLayout(
-                canvasSize = Size(width.toFloat(), 0f),
-                axisWidthPx = axisWidthPx,
-                timeAxisHeightPx = timeAxisHeightPx,
-                densityScale = densityScale,
-                paneConfig = appliedPaneConfig,
-                subPaneSpecs = indicatorPanePlan.subPaneSpecs,
-            ).requiredHeightPx.roundToInt()
-        } else if (constraints.hasBoundedHeight) {
-            constraints.maxHeight
-        } else {
-            constraints.minHeight
-        }
-        val height = desiredHeight.coerceIn(constraints.minHeight, constraints.maxHeight)
-        val childConstraints = Constraints.fixed(width, height)
-        val measuredLayout = resolveChartLayout(
-            canvasSize = Size(width.toFloat(), height.toFloat()),
-            axisWidthPx = axisWidthPx,
-            timeAxisHeightPx = timeAxisHeightPx,
-            densityScale = densityScale,
-            paneConfig = appliedPaneConfig,
-            subPaneSpecs = indicatorPanePlan.subPaneSpecs,
-        )
-        val mainRect = measuredLayout.mainPane.outerRect
-        val mainConstraints = Constraints.fixed(
-            mainRect.width.roundToInt().coerceAtLeast(0),
-            mainRect.height.roundToInt().coerceAtLeast(0),
-        )
-        val placeables = measurables.map { measurable ->
-            val isMainSlot = measurable.layoutId == "main-background" || measurable.layoutId == "main-foreground"
-            val childConstraintsForId = when {
-                isMainSlot -> mainConstraints
-                measurable.layoutId == "vertical-zoom-exit" -> Constraints(
-                    maxWidth = mainRect.width.roundToInt().coerceAtLeast(0),
-                    maxHeight = mainRect.height.roundToInt().coerceAtLeast(0),
-                )
-                else -> childConstraints
-            }
-            Triple(measurable.measure(childConstraintsForId), isMainSlot, measurable.layoutId)
-        }
-        layout(width, height) {
-            placeables.forEach { (placeable, isMainSlot, layoutId) ->
-                val x = when {
-                    isMainSlot -> mainRect.left.roundToInt()
-                    layoutId == "vertical-zoom-exit" ->
-                        (mainRect.right - placeable.width - 8f * densityScale).roundToInt()
-                    else -> 0
-                }
-                val y = when {
-                    isMainSlot -> mainRect.top.roundToInt()
-                    layoutId == "vertical-zoom-exit" ->
-                        (mainRect.bottom - placeable.height - 8f * densityScale).roundToInt()
-                    else -> 0
-                }
-                placeable.place(x, y)
-            }
-        }
-    }
+    )
 }

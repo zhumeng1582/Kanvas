@@ -27,6 +27,38 @@ class KlineIndicatorRendererLifecycleTest {
     private val state = KlineUiState()
 
     @Test
+    fun `viewport-only frames skip factory lifecycle reconciliation`() {
+        val definition = IndicatorDefinition(key = IndicatorKey.direct("viewport_stable"))
+        val registry = IndicatorRegistry()
+        val mounted = registry.mount(listOf(definition), restoredActiveKeys = listOf(definition.key))
+        var supportsCount = 0
+        val factory = object : KlineStatefulIndicatorRendererFactory {
+            override fun supports(definition: IndicatorDefinition): Boolean {
+                supportsCount += 1
+                return definition.key.id == "viewport_stable"
+            }
+
+            override fun create(definition: IndicatorDefinition): KlineStatefulIndicatorRenderer = testRenderer()
+        }
+        val host = KlineIndicatorRendererLifecycleHost(
+            KlineIndicatorRendererRegistry(renderers = emptyList(), statefulFactories = listOf(factory)),
+        )
+        try {
+            host.reconcile(state, mounted)
+            val afterInitialReconcile = supportsCount
+
+            host.reconcile(
+                state.copy(viewport = state.viewport.copy(rightEdgeOffsetPx = 24f)),
+                mounted,
+            )
+
+            assertEquals(afterInitialReconcile, supportsCount)
+        } finally {
+            host.close()
+        }
+    }
+
+    @Test
     fun `non keep alive renderer is recreated after hide and show`() {
         val events = mutableListOf<String>()
         val factory = RecordingFactory(events)

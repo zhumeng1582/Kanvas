@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -112,6 +113,8 @@ import com.zhumeng.kanvas.drawing.DrawingTypeDescriptor
 import com.zhumeng.kanvas.drawing.rememberDrawingToolbarState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -231,12 +234,20 @@ private fun ReferenceSample(
         activeIndicatorKeys = activeIndicatorKeys,
         computeMode = computeMode,
     )
-    val state by chartState.state.collectAsState()
+    // Observing the complete chart state here made every viewport frame
+    // recompose the surrounding toolbar and settings UI. The header only needs
+    // the candle count, so keep its subscription at that exact granularity.
+    val candleCountFlow = remember(chartState) {
+        chartState.state
+            .map { chart -> chart.series.size }
+            .distinctUntilChanged()
+    }
+    val candleCount by candleCountFlow.collectAsState(initial = 0)
     val indicatorRegistrySnapshot by chartState.indicators.state.collectAsState()
     val drawingController = chartState.drawingController
     var selectedTimeframe by remember { mutableStateOf("1h") }
     var showIndicatorSheet by remember { mutableStateOf(false) }
-    var historicalPage by remember { mutableStateOf(0) }
+    var historicalPage by remember { mutableIntStateOf(0) }
     val candleIntervalMillis = when (selectedTimeframe) {
         "1m" -> 60_000L
         "15m" -> 15L * 60_000L
@@ -353,7 +364,7 @@ private fun ReferenceSample(
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
-                text = "${state.series.size} candles · 300ms live · MA + Volume are Android examples · $computeMode compute · tap/long-press Cross · double-tap/reset · pinch/axis-drag to scale",
+                text = "$candleCount candles · 300ms live · MA + Volume are Android examples · $computeMode compute · tap/long-press Cross · double-tap/reset · pinch/axis-drag to scale",
                 color = colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )

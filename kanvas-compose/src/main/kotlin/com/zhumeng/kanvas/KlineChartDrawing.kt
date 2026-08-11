@@ -1032,13 +1032,18 @@ internal fun DrawScope.drawHighLowMarks(
     textMeasurer: TextMeasurer,
 ) {
     if (range.isEmpty) return
-    val indices = (range.startInclusive until range.endExclusive).filter { candles[it].isRenderable }
-    if (indices.isEmpty()) return
-    if (config.high.show) {
-        val index = indices.maxBy { candles[it].high }
+    var highIndex = -1
+    var lowIndex = -1
+    for (index in range.startInclusive until range.endExclusive) {
+        val candle = candles[index]
+        if (!candle.isRenderable) continue
+        if (highIndex < 0 || candle.high > candles[highIndex].high) highIndex = index
+        if (lowIndex < 0 || candle.low < candles[lowIndex].low) lowIndex = index
+    }
+    if (config.high.show && highIndex >= 0) {
         drawPriceExtremeMark(
-            index = index,
-            value = candles[index].high,
+            index = highIndex,
+            value = candles[highIndex].high,
             plotRect = plotRect,
             values = values,
             viewport = viewport,
@@ -1048,11 +1053,10 @@ internal fun DrawScope.drawHighLowMarks(
             textMeasurer = textMeasurer,
         )
     }
-    if (config.low.show) {
-        val index = indices.minBy { candles[it].low }
+    if (config.low.show && lowIndex >= 0) {
         drawPriceExtremeMark(
-            index = index,
-            value = candles[index].low,
+            index = lowIndex,
+            value = candles[lowIndex].low,
             plotRect = plotRect,
             values = values,
             viewport = viewport,

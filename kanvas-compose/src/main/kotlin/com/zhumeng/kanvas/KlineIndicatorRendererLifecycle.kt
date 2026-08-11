@@ -111,6 +111,19 @@ class KlineIndicatorRendererLifecycleHost(
     ) {
         synchronized(lock) {
             if (closed) return
+            // Viewport and candle snapshots change much more frequently than
+            // renderer lifecycle dependencies. Keep the latest state for a
+            // future dispose callback, but avoid rebuilding desired sets and
+            // resolving every factory on each drag frame.
+            if (
+                !reconciling &&
+                registry != null &&
+                registry === lastRegistry &&
+                sameSpecDependency(state.spec, lastState?.spec)
+            ) {
+                lastState = state
+                return
+            }
             if (reconciling) {
                 // Plugin callbacks may re-enter. Keep only the newest complete
                 // snapshot; all intermediate registry states are superseded.
@@ -426,6 +439,7 @@ class KlineIndicatorRendererLifecycleHost(
      */
     internal fun dispatchPendingResolutionErrors() {
         val errors = synchronized(lock) {
+            if (pendingResolutionErrors.isEmpty()) return
             val captured = pendingResolutionErrors.toList()
             pendingResolutionErrors.clear()
             captured

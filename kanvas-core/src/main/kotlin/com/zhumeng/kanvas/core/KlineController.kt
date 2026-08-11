@@ -49,9 +49,9 @@ data class KlineDataResult(
     val update: KlineSeriesUpdateResult? = null,
 )
 
-private data class CachedSeries(
-    val series: KlineSeries,
-    val viewport: KlineViewport,
+private class CachedSeries(
+    var series: KlineSeries,
+    var viewport: KlineViewport,
 )
 
 /**
@@ -139,7 +139,7 @@ class KlineController(
                 series = series,
                 changedRange = IndexRange(0, maxOf(cached.series.size, series.size)),
             )
-            cache[spec.key] = cached.copy(series = series)
+            cached.series = series
             return KlineDataResult(KlineDataDisposition.CachedInactiveSpec, update)
         }
 
@@ -177,7 +177,7 @@ class KlineController(
             val cached = cache[spec.key]
                 ?: return KlineDataResult(KlineDataDisposition.IgnoredInactiveSpec)
             val update = cached.series.updateLatest(candle)
-            cache[spec.key] = cached.copy(series = update.series)
+            cached.series = update.series
             return KlineDataResult(KlineDataDisposition.CachedInactiveSpec, update)
         }
         val update = current.series.updateLatest(candle)
@@ -202,9 +202,11 @@ class KlineController(
     /** Updates viewport geometry after Compose measures its plot rect. */
     fun updateViewportConstraints(constraints: KlineViewportConstraints): KlineUiState = synchronized(lock) {
         val current = mutableState.value
+        val viewport = resetOrClampViewport(current.series, current.viewport, constraints, reset = false)
+        if (current.viewportConstraints == constraints && current.viewport == viewport) return current
         val next = current.copy(
             viewportConstraints = constraints,
-            viewport = resetOrClampViewport(current.series, current.viewport, constraints, reset = false),
+            viewport = viewport,
         )
         mutableState.value = next
         rememberCurrent(next)
@@ -214,8 +216,10 @@ class KlineController(
     /** Applies a caller-computed viewport while enforcing the source bounds. */
     fun updateViewport(viewport: KlineViewport): KlineUiState = synchronized(lock) {
         val current = mutableState.value
+        val clamped = resetOrClampViewport(current.series, viewport, current.viewportConstraints, reset = false)
+        if (current.viewport == clamped) return current
         val next = current.copy(
-            viewport = resetOrClampViewport(current.series, viewport, current.viewportConstraints, reset = false),
+            viewport = clamped,
         )
         mutableState.value = next
         rememberCurrent(next)
@@ -441,7 +445,13 @@ class KlineController(
     private fun rememberCurrent(state: KlineUiState) {
         val spec = state.spec ?: return
         if (cacheCapacity == 0) return
-        cache[spec.key] = CachedSeries(state.series, state.viewport)
+        val cached = cache[spec.key]
+        if (cached == null) {
+            cache[spec.key] = CachedSeries(state.series, state.viewport)
+        } else {
+            cached.series = state.series
+            cached.viewport = state.viewport
+        }
     }
 
     companion object {

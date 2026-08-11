@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class KlineControllerTest {
@@ -19,6 +20,18 @@ class KlineControllerTest {
 
         assertEquals(21f, controller.state.value.viewport.candleWidthPx)
         assertEquals(3f, controller.state.value.viewport.candleSpacingPx)
+    }
+
+    @Test
+    fun `identical viewport and constraints do not publish replacement state`() {
+        val controller = KlineController()
+        val constraints = KlineViewportConstraints(plotWidthPx = 400f)
+        controller.updateViewportConstraints(constraints)
+        val before = controller.state.value
+
+        assertSame(before, controller.updateViewport(before.viewport))
+        assertSame(before, controller.updateViewportConstraints(constraints))
+        assertSame(before, controller.state.value)
     }
 
     @Test
