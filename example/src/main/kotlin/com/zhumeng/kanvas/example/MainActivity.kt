@@ -322,7 +322,7 @@ private fun ReferenceSample(
                 // loading behavior remain manually testable.
                 delay(1_500)
                 historicalPage += 1
-                chartState.completeLoadMore(
+                chartState.completeLoadMorePrepared(
                     requestId = event.requestId,
                     candles = sampleCandles(
                         count = 120,

@@ -77,6 +77,10 @@ public final class com/zhumeng/kanvas/KanvasChartState {
 	public final fun completeLoadMore (Ljava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;)Lcom/zhumeng/kanvas/core/KlineDataResult;
 	public static synthetic fun completeLoadMore$default (Lcom/zhumeng/kanvas/KanvasChartState;JLjava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
 	public static synthetic fun completeLoadMore$default (Lcom/zhumeng/kanvas/KanvasChartState;Ljava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;ILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun completeLoadMorePrepared (JLjava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun completeLoadMorePrepared (Ljava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun completeLoadMorePrepared$default (Lcom/zhumeng/kanvas/KanvasChartState;JLjava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun completeLoadMorePrepared$default (Lcom/zhumeng/kanvas/KanvasChartState;Ljava/util/List;ZLcom/zhumeng/kanvas/KanvasCandleOrder;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public final fun failLoadMore (JLjava/lang/String;)Lcom/zhumeng/kanvas/core/KlineUiState;
 	public final fun failLoadMore (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineUiState;
 	public final fun getDefaultConfig ()Lcom/zhumeng/kanvas/KanvasChartConfig;

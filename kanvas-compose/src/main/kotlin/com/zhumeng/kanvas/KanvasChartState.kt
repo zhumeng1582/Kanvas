@@ -199,6 +199,46 @@ class KanvasChartState internal constructor(
         order: KanvasCandleOrder = KanvasCandleOrder.NewestFirst,
     ): KlineDataResult = controller.completeLoadMore(requestId, candles.inOrder(order), hasMoreOlder)
 
+    /**
+     * Calculates indicators for the merged historical series before exposing
+     * the new candle page. Prefer this from coroutine-based data loaders when
+     * active indicator lines must appear in the same frame as older candles.
+     */
+    suspend fun completeLoadMorePrepared(
+        requestId: Long,
+        candles: List<KlineCandle>,
+        hasMoreOlder: Boolean = true,
+        order: KanvasCandleOrder = KanvasCandleOrder.NewestFirst,
+    ): KlineDataResult {
+        val normalized = candles.inOrder(order)
+        while (true) {
+            val before = state.value
+            if (before.loadMoreRequestId != requestId) {
+                return controller.completeLoadMore(requestId, normalized, hasMoreOlder)
+            }
+            val candidate = before.series.appendOlder(normalized)
+            if (!candidate.changed) {
+                return controller.completeLoadMore(requestId, normalized, hasMoreOlder)
+            }
+            val prepared = indicators.coordinator.calculateAhead(
+                series = candidate.series,
+                sourceRevision = before.revision + 1L,
+            )
+            val current = state.value
+            if (current.loadMoreRequestId != requestId) {
+                return controller.completeLoadMore(requestId, normalized, hasMoreOlder)
+            }
+            // A realtime tick may land while calculation is off-thread. Retry
+            // against that latest series so the page and output stay atomic.
+            if (current.revision != before.revision || current.series.candles != before.series.candles) continue
+            if (!prepared.matches(indicators.snapshot())) continue
+
+            val result = controller.completeLoadMore(requestId, normalized, hasMoreOlder)
+            indicators.coordinator.publishPrepared(prepared)
+            return result
+        }
+    }
+
     /** Completes the currently pending request without making callers retain its token. */
     fun completeLoadMore(
         candles: List<KlineCandle>,
@@ -209,6 +249,18 @@ class KanvasChartState internal constructor(
             "There is no pending Kanvas load-more request"
         }
         return completeLoadMore(requestId, candles, hasMoreOlder, order)
+    }
+
+    /** Prepared-output counterpart of [completeLoadMore] for the pending request. */
+    suspend fun completeLoadMorePrepared(
+        candles: List<KlineCandle>,
+        hasMoreOlder: Boolean = true,
+        order: KanvasCandleOrder = KanvasCandleOrder.NewestFirst,
+    ): KlineDataResult {
+        val requestId = requireNotNull(state.value.loadMoreRequestId) {
+            "There is no pending Kanvas load-more request"
+        }
+        return completeLoadMorePrepared(requestId, candles, hasMoreOlder, order)
     }
 
     fun failLoadMore(requestId: Long, message: String): KlineUiState =

@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -23,6 +24,57 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class IndicatorRuntimeCoordinatorTest {
+    @Test
+    fun `prepared historical output is not calculated again after publication`() = runBlocking {
+        val calls = AtomicInteger(0)
+        val definition = IndicatorDefinition(
+            key = IndicatorKey.computed("prepared"),
+            calculator = IndicatorCalculator { input ->
+                calls.incrementAndGet()
+                IndicatorOutput.of(
+                    key = input.definition.key,
+                    seriesSize = input.series.size,
+                    columns = listOf(
+                        IndicatorColumn.of("close", input.series.candles.map(KlineCandle::close)),
+                    ),
+                )
+            },
+        )
+        val controller = KlineController()
+        val selectedSpec = spec("BTC-USDT")
+        controller.select(selectedSpec, useCache = false)
+        controller.replaceAll(selectedSpec, candles(4.0, 3.0, 2.0))
+        val registry = IndicatorRegistry().apply {
+            mount(listOf(definition), restoredActiveKeys = listOf(definition.key))
+        }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val coordinator = IndicatorRuntimeCoordinator(controller, registry, scope)
+        try {
+            withTimeout(2_000) {
+                coordinator.state.filterNotNull().first { it.matches(controller.state.value, registry.snapshot()) }
+            }
+            assertEquals(1, calls.get())
+
+            assertTrue(controller.requestLoadMore())
+            val requestId = checkNotNull(controller.state.value.loadMoreRequestId)
+            val before = controller.state.value
+            val older = candles(1.0, 0.0).mapIndexed { index, candle ->
+                candle.copy(timestampMillis = -index.toLong())
+            }
+            val candidate = before.series.appendOlder(older).series
+            val prepared = coordinator.calculateAhead(candidate, before.revision + 1L)
+            controller.completeLoadMore(requestId, older, hasMoreOlder = false)
+            assertTrue(coordinator.publishPrepared(prepared))
+
+            delay(200)
+            assertEquals(2, calls.get())
+            assertTrue(coordinator.state.value?.matches(controller.state.value, registry.snapshot()) == true)
+        } finally {
+            coordinator.close()
+            scope.cancel()
+        }
+    }
+
     @Test
     fun `registry update recalculates only the changed definition`() = runBlocking {
         val firstCalls = AtomicInteger(0)

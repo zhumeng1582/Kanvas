@@ -19,6 +19,25 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
+
+/** Keeps CPU-heavy indicator work behind gesture and render threads. */
+private object IndicatorCalculationDispatcher : CoroutineDispatcher() {
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        Dispatchers.Default.dispatch(context) {
+            val thread = Thread.currentThread()
+            val previousPriority = thread.priority
+            try {
+                // Android maps Java thread priorities onto scheduler niceness.
+                // Failure is harmless on a restricted host/JVM.
+                runCatching { thread.priority = Thread.MIN_PRIORITY }
+                block.run()
+            } finally {
+                runCatching { thread.priority = previousPriority }
+            }
+        }
+    }
+}
 
 /** Controls when an open newest candle is allowed to change indicator output. */
 enum class KlineIndicatorRefreshPolicy {
@@ -63,7 +82,7 @@ class IndicatorRuntimeCoordinator(
     private val runtime: IndicatorRuntime = IndicatorRuntime(),
     private val computeMode: KlineComputeMode = KlineComputeMode.Fast,
     private val refreshPolicy: KlineIndicatorRefreshPolicy = KlineIndicatorRefreshPolicy.EveryTick,
-    private val calculationDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val calculationDispatcher: CoroutineDispatcher = IndicatorCalculationDispatcher,
     private val onCalculationError: (Throwable) -> Unit = {},
 ) : AutoCloseable {
     private data class Input(
@@ -75,6 +94,8 @@ class IndicatorRuntimeCoordinator(
     private val mutableState = MutableStateFlow<IndicatorRuntimeSnapshot?>(null)
     private val mutableError = MutableStateFlow<Throwable?>(null)
     private val refreshEpoch = MutableStateFlow(0L)
+    private val resultLock = Any()
+    private var previousResult: IndicatorRuntimeSnapshot? = null
 
     /** The latest successfully calculated/rebased snapshot, or null before first success/after an error. */
     val state: StateFlow<IndicatorRuntimeSnapshot?> = mutableState.asStateFlow()
@@ -92,7 +113,6 @@ class IndicatorRuntimeCoordinator(
             // Starting after a controller has already selected its first spec
             // is not a dependency *change*. A subsequent key transition is.
             var observedSpec: KlineSpec? = controller.state.value.spec
-            var previousResult: IndicatorRuntimeSnapshot? = null
             var observedRefreshEpoch = refreshEpoch.value
 
             combine(controller.state, registry.state, refreshEpoch) { chart, registrySnapshot, refresh ->
@@ -125,8 +145,19 @@ class IndicatorRuntimeCoordinator(
                     // Keep the prior snapshot from this registry available so
                     // IndicatorRuntime can reuse every unchanged definition.
                     // Publication still requires the exact new generation.
-                    val previousForCalculation = previousResult
-                        ?.takeIf { previous -> previous.hasRegistryIdentity(capturedRegistry) }
+                    val previousForCalculation = synchronized(resultLock) {
+                        previousResult?.takeIf { previous -> previous.hasRegistryIdentity(capturedRegistry) }
+                    }
+                    // A prepared historical page may already have published
+                    // the exact result before this StateFlow emission is
+                    // collected. Do not calculate the expanded series twice.
+                    if (!forceRefresh &&
+                        previousForCalculation?.matches(capturedRegistry) == true &&
+                        previousForCalculation.sourceRevision == capturedRevision &&
+                        previousForCalculation.series.candles == input.chart.series.candles
+                    ) {
+                        return@collectLatest
+                    }
                     if (!forceRefresh &&
                         refreshPolicy == KlineIndicatorRefreshPolicy.OnCandleBoundary &&
                         previousForCalculation != null &&
@@ -137,8 +168,10 @@ class IndicatorRuntimeCoordinator(
                             series = input.chart.series,
                             sourceRevision = capturedRevision,
                         )
-                        previousResult = rebased
-                        mutableState.value = rebased
+                        synchronized(resultLock) {
+                            previousResult = rebased
+                            mutableState.value = rebased
+                        }
                         return@collectLatest
                     }
                     val calculated = withContext(calculationDispatcher) {
@@ -156,8 +189,10 @@ class IndicatorRuntimeCoordinator(
                     if (controller.state.value.revision != capturedRevision) return@collectLatest
                     if (!calculated.matches(registry.snapshot())) return@collectLatest
 
-                    previousResult = calculated
-                    mutableState.value = calculated
+                    synchronized(resultLock) {
+                        previousResult = calculated
+                        mutableState.value = calculated
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
@@ -176,6 +211,47 @@ class IndicatorRuntimeCoordinator(
     /** Re-runs the current controller/registry input after a transient calculation failure. */
     fun retry() {
         refreshEpoch.update { current -> current + 1L }
+    }
+
+    /**
+     * Calculates a complete indicator snapshot before [series] is published by
+     * the controller. Historical pagination can use this to avoid exposing a
+     * new candle page for one or more frames before its indicator geometry is
+     * ready.
+     *
+     * The returned snapshot is not published automatically. After committing
+     * the matching controller state, call [publishPrepared] immediately.
+     */
+    suspend fun calculateAhead(
+        series: KlineSeries,
+        sourceRevision: Long,
+    ): IndicatorRuntimeSnapshot {
+        val capturedRegistry = registry.snapshot()
+        val previous = synchronized(resultLock) {
+            previousResult?.takeIf { result -> result.hasRegistryIdentity(capturedRegistry) }
+        }
+        return withContext(calculationDispatcher) {
+            runtime.calculate(
+                previous = previous,
+                series = series,
+                registry = capturedRegistry,
+                computeMode = computeMode,
+            )
+        }.withSourceRevision(sourceRevision)
+    }
+
+    /**
+     * Publishes an ahead-of-controller calculation only when both its candle
+     * input and registry generation now match the current chart state.
+     */
+    fun publishPrepared(snapshot: IndicatorRuntimeSnapshot): Boolean {
+        if (!snapshot.matches(controller.state.value, registry.snapshot())) return false
+        synchronized(resultLock) {
+            previousResult = snapshot
+            mutableError.value = null
+            mutableState.value = snapshot
+        }
+        return true
     }
 
     /** Stops observation; calculation jobs that honour cancellation are cancelled as well. */

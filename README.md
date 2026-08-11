@@ -251,7 +251,7 @@ The high-level state separates the data operations deliberately:
 | Initial market/load | `setMarket(spec, candles)` |
 | Full refresh | `setData(candles)` |
 | Realtime tick/Candle | `updateLatest(candle)` |
-| Historical page | `completeLoadMore(requestId, candles, hasMoreOlder)` |
+| Historical page | `completeLoadMorePrepared(requestId, candles, hasMoreOlder)` |
 
 `KlineLoadingState.InitLoading` and `LoadingMore` render a main-pane spinner
 when `renderConfig.gesture.autoLoadMore` is true. `KlineLoadingRenderConfig`
@@ -261,9 +261,14 @@ Before inertia starts, the chart predicts its destination. Entering the early
 threshold starts silent `LoadMore` prefetch; reaching the projected historical
 boundary upgrades the same request to visible `LoadingMore`.
 Load-more uses request tokens. Collect `KlineEvent.LoadMore`, then finish through
-`completeLoadMore(requestId, incoming, hasMoreOlder)` or
+`completeLoadMorePrepared(requestId, incoming, hasMoreOlder)` or
 `failLoadMore(requestId, message)`. Late completions are rejected and
 `hasMoreOlder=false` prevents duplicate requests.
+
+The suspending prepared variant calculates active indicators off the UI thread
+before publishing the historical page, so candles and indicator lines appear
+together. The synchronous `completeLoadMore` remains available when the caller
+owns indicator-output coordination.
 
 Core does not sort, de-duplicate, or merge exchange data. Hosts must supply
 strictly newest-first candles with unique timestamps and use explicit data
@@ -272,7 +277,7 @@ operations:
 ```kotlin
 chartState.setMarket(spec, initialCandles)
 chartState.updateLatest(realtimeCandle)
-chartState.completeLoadMore(requestId, strictlyOlderCandles)
+chartState.completeLoadMorePrepared(requestId, strictlyOlderCandles)
 ```
 
 `completeLoadMore` only appends the page; its first candle must be strictly
@@ -295,7 +300,7 @@ LaunchedEffect(chartState, spec) {
                 .sortedByDescending(KlineCandle::timestampMillis)
                 .distinctBy(KlineCandle::timestampMillis)
                 .filter { it.timestampMillis < event.beforeTimestampMillis }
-            chartState.completeLoadMore(event.requestId, candles, page.hasMoreOlder)
+            chartState.completeLoadMorePrepared(event.requestId, candles, page.hasMoreOlder)
         }.onFailure { error ->
             chartState.failLoadMore(event.requestId, error.message ?: "load older candles failed")
         }

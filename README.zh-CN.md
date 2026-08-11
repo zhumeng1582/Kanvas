@@ -254,7 +254,7 @@ Kanvas 将数据操作明确区分为三类：
 | 首次市场加载 | `setMarket(spec, candles)` | 选择市场、替换序列并回到初始视口 |
 | 完整刷新 | `setData(candles)` | 替换当前市场的整个序列 |
 | 行情推送 | `updateLatest(candle)` | 更新同时间戳最新 K 线，或插入一根更新的 K 线 |
-| 历史分页 | `completeLoadMore(requestId, candles, hasMoreOlder)` | 将严格更旧的一页追加到历史侧，并保持当前视口锚点 |
+| 历史分页 | `completeLoadMorePrepared(requestId, candles, hasMoreOlder)` | 预先计算启用的指标，再将严格更旧的一页追加到历史侧，并保持当前视口锚点 |
 
 当 `renderConfig.gesture.autoLoadMore` 为 `true` 时，
 `KlineLoadingState.InitLoading` 和 `LoadingMore` 会在主窗格中显示加载动画。
@@ -264,9 +264,13 @@ Kanvas 将数据操作明确区分为三类：
 图表会在惯性开始前根据预计落点触发加载：进入提前加载阈值时使用静默
 `LoadMore`，预计撞到历史边界时升级为显示动画的 `LoadingMore`。
 加载更多使用请求令牌。收集 `KlineEvent.LoadMore`，通过
-`completeLoadMore(requestId, incoming, hasMoreOlder)` 或
+`completeLoadMorePrepared(requestId, incoming, hasMoreOlder)` 或
 `failLoadMore(requestId, message)` 结束请求。过期的完成回调会被拒绝，
 `hasMoreOlder=false` 会阻止重复请求。
+
+挂起的 prepared 版本会先在 UI 线程外计算当前启用的指标，再一起发布历史 K 线和
+指标结果，避免滑动后先看到 K 线、下一帧才出现指标线。同步的 `completeLoadMore`
+仍然保留，适合由调用方自行协调指标结果的场景。
 
 推荐在一个与 Controller 生命周期一致的协程中收集加载事件。每个事件都包含请求令牌和明确的
 `beforeTimestampMillis` 游标：
@@ -287,7 +291,7 @@ LaunchedEffect(chartState, spec) {
                 .distinctBy(KlineCandle::timestampMillis)
                 .filter { it.timestampMillis < event.beforeTimestampMillis }
 
-            chartState.completeLoadMore(
+            chartState.completeLoadMorePrepared(
                 requestId = event.requestId,
                 candles = normalized,
                 hasMoreOlder = page.hasMoreOlder,
@@ -312,7 +316,7 @@ K 线，并使用明确的数据操作：
 ```kotlin
 chartState.setMarket(spec, initialCandles)
 chartState.updateLatest(realtimeCandle)
-chartState.completeLoadMore(requestId, strictlyOlderCandles)
+chartState.completeLoadMorePrepared(requestId, strictlyOlderCandles)
 ```
 
 对于 300ms 等高频更新，推荐让最新蜡烛实时变化、指标仅在新 K 线出现时刷新，并对

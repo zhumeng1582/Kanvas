@@ -457,10 +457,12 @@ public final class com/zhumeng/kanvas/core/IndicatorRuntime {
 public final class com/zhumeng/kanvas/core/IndicatorRuntimeCoordinator : java/lang/AutoCloseable {
 	public fun <init> (Lcom/zhumeng/kanvas/core/KlineController;Lcom/zhumeng/kanvas/core/IndicatorRegistry;Lkotlinx/coroutines/CoroutineScope;Lcom/zhumeng/kanvas/core/IndicatorRuntime;Lcom/zhumeng/kanvas/core/KlineComputeMode;Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function1;)V
 	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/KlineController;Lcom/zhumeng/kanvas/core/IndicatorRegistry;Lkotlinx/coroutines/CoroutineScope;Lcom/zhumeng/kanvas/core/IndicatorRuntime;Lcom/zhumeng/kanvas/core/KlineComputeMode;Lcom/zhumeng/kanvas/core/KlineIndicatorRefreshPolicy;Lkotlinx/coroutines/CoroutineDispatcher;Lkotlin/jvm/functions/Function1;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun calculateAhead (Lcom/zhumeng/kanvas/core/KlineSeries;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun close ()V
 	public final fun getError ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getSnapshot ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun publishPrepared (Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;)Z
 	public final fun retry ()V
 }
 

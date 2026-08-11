@@ -14,6 +14,7 @@ import com.zhumeng.kanvas.drawing.DrawingController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -54,6 +55,33 @@ class KanvasChartStateTest {
 
         assertTrue(fixture.state.indicators.snapshot().isActive(plugin.key))
         assertEquals(updated, fixture.state.indicators.config(plugin))
+        fixture.close()
+    }
+
+    @Test
+    fun `prepared historical completion publishes aligned indicators with the candle page`() = runBlocking {
+        val plugin = KlineMovingAverageIndicatorPlugin(
+            defaultConfig = KlineMovingAverageIndicatorConfig(periods = listOf(2)),
+        )
+        val fixture = fixture(KlineIndicatorPluginCatalog.of(plugin.bind()))
+        val spec = KlineSpec("BTC-USDT", KlineInterval.minutes(15), precision = 2)
+        fixture.state.indicators.show(plugin.key)
+        fixture.state.setMarket(
+            spec = spec,
+            candles = listOf(candle(300L), candle(200L), candle(100L)),
+        )
+
+        assertTrue(fixture.state.requestLoadMore())
+        fixture.state.completeLoadMorePrepared(
+            candles = listOf(candle(50L), candle(0L)),
+            hasMoreOlder = false,
+        )
+
+        val chart = fixture.state.state.value
+        val registry = fixture.state.indicators.snapshot()
+        val indicators = checkNotNull(fixture.state.indicators.calculationState.value)
+        assertTrue(indicators.matches(chart, registry))
+        assertEquals(chart.series.size, indicators.output(plugin.key)?.seriesSize)
         fixture.close()
     }
 
