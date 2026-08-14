@@ -717,6 +717,9 @@ internal fun resolveKlineIndicatorRenderFrames(
     densityScale: Float,
     hideMainIndicators: Boolean,
     sameValueExpansionRatios: List<Float> = listOf(0.1f, 0.05f),
+    subPaneRangeSmoothers: KlinePaneValueRangeSmoothers? = null,
+    subPaneRangeResetKey: Any? = null,
+    subPaneRangeTransition: KlineValueRangeTransition? = null,
 ): KlineIndicatorRenderFrames {
 
     fun KlinePaneLayout.isDrawable(): Boolean =
@@ -771,7 +774,7 @@ internal fun resolveKlineIndicatorRenderFrames(
         if (!pane.isDrawable()) return@forEach
         val items = indicatorPanePlan.subByPane[pane.id].orEmpty()
         if (items.isEmpty()) return@forEach
-        val valueRange = items.mapNotNull(KlineIndicatorRenderItem::output).valueRange(
+        val targetValueRange = items.mapNotNull(KlineIndicatorRenderItem::output).valueRange(
             range = paintRange,
             minimum = if (items.isVolumeOnlyPane()) 0.0 else null,
             sameValueExpansionRatios = sameValueExpansionRatios,
@@ -781,6 +784,12 @@ internal fun resolveKlineIndicatorRenderFrames(
                 viewport = state.viewport,
             ),
         )
+        val valueRange = subPaneRangeSmoothers?.resolve(
+            paneId = pane.id,
+            target = targetValueRange,
+            resetKey = subPaneRangeResetKey,
+            transition = subPaneRangeTransition,
+        ) ?: targetValueRange
         subByPane[pane.id] = items.map { item -> frame(item, pane, valueRange) }
     }
     return KlineIndicatorRenderFrames(main = main, subByPane = LinkedHashMap(subByPane))

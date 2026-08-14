@@ -8,9 +8,11 @@ package com.zhumeng.kanvas
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.zhumeng.kanvas.core.IndexRange
+import com.zhumeng.kanvas.core.IndicatorColumn
 import com.zhumeng.kanvas.core.IndicatorDefinition
 import com.zhumeng.kanvas.core.IndicatorKey
 import com.zhumeng.kanvas.core.IndicatorLayoutHint
+import com.zhumeng.kanvas.core.IndicatorOutput
 import com.zhumeng.kanvas.core.IndicatorPaintMode
 import com.zhumeng.kanvas.core.IndicatorPlacement
 import com.zhumeng.kanvas.core.KlineUiState
@@ -91,6 +93,58 @@ class KlineIndicatorRenderFrameTest {
     }
 
     @Test
+    fun `volume pane range interpolates when an older page becomes visible`() {
+        val smoothers = KlinePaneValueRangeSmoothers()
+        val layout = layout()
+
+        fun range(values: List<Double>, transition: KlineValueRangeTransition?): KlineValueRange {
+            val volume = item(
+                id = "volume",
+                placement = IndicatorPlacement.Sub("first"),
+                order = 0,
+                calculator = Volume,
+                values = values,
+            )
+            val plan = KlineIndicatorPanePlan(
+                mainPaintOrder = emptyList(),
+                subByPane = linkedMapOf("first" to listOf(volume)),
+                subPaneLayoutHints = linkedMapOf("first" to listOf(IndicatorLayoutHint())),
+                unsupportedDefinitions = emptyList(),
+            )
+            return resolveKlineIndicatorRenderFrames(
+                state = KlineUiState(),
+                layout = layout,
+                indicatorPanePlan = plan,
+                paintRange = IndexRange(0, values.size),
+                mainValueRange = KlineValueRange(1.0, 10.0),
+                style = KlineChartStyle(),
+                densityScale = 1f,
+                hideMainIndicators = false,
+                subPaneRangeSmoothers = smoothers,
+                subPaneRangeResetKey = "BTC",
+                subPaneRangeTransition = transition,
+            ).subByPane.getValue("first").single().context.valueRange
+        }
+
+        val before = range(listOf(10.0, 20.0), transition = null)
+        assertEquals(KlineValueRange(-1.0, 21.0), before)
+        assertEquals(
+            before,
+            range(
+                values = listOf(10.0, 20.0, 100.0),
+                transition = KlineValueRangeTransition("page-1", 0f),
+            ),
+        )
+        assertEquals(
+            KlineValueRange(-3.0, 63.0),
+            range(
+                values = listOf(10.0, 20.0, 100.0),
+                transition = KlineValueRangeTransition("page-1", 0.5f),
+            ),
+        )
+    }
+
+    @Test
     fun `zero-size panes do not become overlay cross or tap hook candidates`() {
         val main = item("main", IndicatorPlacement.Main, order = 0)
         val sub = item("sub", IndicatorPlacement.Sub("sub"), order = 1)
@@ -137,6 +191,7 @@ class KlineIndicatorRenderFrameTest {
         paintMode: IndicatorPaintMode = IndicatorPaintMode.COMBINE,
         layoutHint: IndicatorLayoutHint = IndicatorLayoutHint(),
         calculator: com.zhumeng.kanvas.core.IndicatorCalculator = MovingAverage(listOf(2)),
+        values: List<Double>? = null,
     ): KlineIndicatorRenderItem {
         val definition = IndicatorDefinition(
             key = IndicatorKey.computed(id),
@@ -147,7 +202,13 @@ class KlineIndicatorRenderFrameTest {
         )
         return KlineIndicatorRenderItem(
             definition = definition,
-            output = null,
+            output = values?.let { samples ->
+                IndicatorOutput.of(
+                    key = definition.key,
+                    seriesSize = samples.size,
+                    columns = listOf(IndicatorColumn.of(Volume.ColumnName, samples)),
+                )
+            },
             renderer = TestRenderer,
             declarationOrder = order,
         )

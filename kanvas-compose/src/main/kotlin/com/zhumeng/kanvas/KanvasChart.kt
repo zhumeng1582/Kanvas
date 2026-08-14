@@ -4,6 +4,8 @@
  */
 
 package com.zhumeng.kanvas
+
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.magnifier
@@ -339,8 +341,12 @@ private class CrosshairSessionRef(var value: CrosshairSession? = null)
 private class KlineRangeUpdateRef(
     var series: KlineSeries? = null,
     var viewport: KlineViewport? = null,
+    var loadingState: KlineLoadingState = KlineLoadingState.None,
     var realtimeMode: Boolean = false,
 )
+
+private const val KlineHistoricalSubPaneRangeTransitionDurationMillis = 160
+
 /** Current owner of one Compose pointer session; later owners reserve higher-priority branches. */
 
 private enum class PointerGestureOwner {
@@ -627,9 +633,46 @@ fun KanvasChart(
     } else {
         panRangeSmoothFactor
     }
+    val animateHistoricalRange = shouldAnimateHistoricalRangeTransition(
+        previousSeries = previousRangeSeries,
+        series = state.series,
+        previousLoadingState = rangeUpdateRef.loadingState,
+        loadingState = state.loadingState,
+    )
+    // The old candles keep their horizontal indexes when an older page is
+    // appended, but the newly filled blank area may change a sub pane's
+    // automatic range (most visibly Volume). Start the transition in the same
+    // composition as the new page so there is no one-frame jump first.
+    val historicalRangeTransitionKey = remember(state.series) {
+        state.revision.takeIf { animateHistoricalRange }
+    }
+    val historicalRangeProgress = remember(state.series) {
+        historicalRangeTransitionKey?.let { Animatable(0f) }
+    }
+    LaunchedEffect(historicalRangeProgress) {
+        historicalRangeProgress?.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = KlineHistoricalSubPaneRangeTransitionDurationMillis,
+                easing = CubicBezierEasing(0.2f, 0f, 0f, 1f),
+            ),
+        )
+    }
+    val historicalRangeProgressValue = historicalRangeProgress?.value ?: 1f
+    val historicalRangeTransition = if (
+        historicalRangeTransitionKey != null && historicalRangeProgressValue < 1f
+    ) {
+        KlineValueRangeTransition(
+            key = historicalRangeTransitionKey,
+            progress = historicalRangeProgressValue,
+        )
+    } else {
+        null
+    }
     SideEffect {
         rangeUpdateRef.series = state.series
         rangeUpdateRef.viewport = state.viewport
+        rangeUpdateRef.loadingState = state.loadingState
         rangeUpdateRef.realtimeMode = realtimeRangeMode
     }
     val focusRequester = remember { FocusRequester() }
@@ -707,6 +750,10 @@ fun KanvasChart(
         )
     }
     val indicatorSubPaneSpecs = remember(indicatorPanePlan) { indicatorPanePlan.subPaneSpecs }
+    val subPaneRangeSmoothers = remember(state.spec?.key) { KlinePaneValueRangeSmoothers() }
+    SideEffect {
+        subPaneRangeSmoothers.retain(indicatorSubPaneSpecs.map(KlineIndicatorSubPaneSpec::id))
+    }
     val appliedPaneConfig = remember(
         basePaneConfig,
         paneHeightOverridesPx,
@@ -990,6 +1037,9 @@ fun KanvasChart(
             densityScale = density,
             hideMainIndicators = hideMain,
             sameValueExpansionRatios = currentRenderConfig.value.sameValueRangeExpansionRatios,
+            subPaneRangeSmoothers = subPaneRangeSmoothers,
+            subPaneRangeResetKey = current.spec?.key,
+            subPaneRangeTransition = historicalRangeTransition,
         )
     }
     /** Dispatches confirmed pointer taps before the Cross persistent-toggle route. */
@@ -2138,6 +2188,9 @@ fun KanvasChart(
                 densityScale = densityScale,
                 hideMainIndicators = hideMainIndicators,
                 sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
+                subPaneRangeSmoothers = subPaneRangeSmoothers,
+                subPaneRangeResetKey = state.spec?.key,
+                subPaneRangeTransition = historicalRangeTransition,
             )
             val baseCrosshair = crosshair
                 ?.takeIf { renderConfig.crosshair.enabled }
@@ -2203,6 +2256,9 @@ fun KanvasChart(
                     densityScale = densityScale,
                     hideMainIndicators = hideMainIndicators,
                     sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
+                    subPaneRangeSmoothers = subPaneRangeSmoothers,
+                    subPaneRangeResetKey = state.spec?.key,
+                    subPaneRangeTransition = historicalRangeTransition,
                 )
             }
             // Resolve this once so ordinary and Cross Top Tips cannot disagree
