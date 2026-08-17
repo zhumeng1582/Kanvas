@@ -509,13 +509,14 @@ internal fun DrawScope.drawLineChart(
     gradients: KlineCandleGradientConfiguration,
 ) {
     if (range.isEmpty) return
-    val points = (range.startInclusive until range.endExclusive).mapNotNull { index ->
-        candles[index].takeIf(KlineCandle::isRenderable)?.let { candle ->
-            Offset(
-                viewport.xForIndex(plotRect.right, index.toDouble()) - viewport.candleHalfStepPx,
-                values.yFor(candle.close, plotRect),
-            )
-        }
+    val points = ArrayList<Offset>(range.length)
+    for (index in range.startInclusive until range.endExclusive) {
+        val candle = candles[index]
+        if (!candle.isRenderable) continue
+        points += Offset(
+            viewport.xForIndex(plotRect.right, index.toDouble()) - viewport.candleHalfStepPx,
+            values.yFor(candle.close, plotRect),
+        )
     }
     if (points.isEmpty()) return
     if (chartStyle == KlineLineStyle.Normal) {
@@ -564,13 +565,15 @@ internal fun splitKlineLineAtBaseline(
     baselineY: Float,
 ): List<KlineLineGradientSegment> {
     if (points.size < 2) return emptyList()
-    val result = mutableListOf<KlineLineGradientSegment>()
+    val result = ArrayList<KlineLineGradientSegment>()
     var bullish = points
         .firstOrNull { it.y != baselineY }
         ?.let { it.y <= baselineY }
         ?: true
-    var current = mutableListOf(points.first())
-    points.zipWithNext().forEach { (start, end) ->
+    var current: MutableList<Offset> = arrayListOf(points.first())
+    for (index in 1 until points.size) {
+        val start = points[index - 1]
+        val end = points[index]
         val nextBullish = end.y <= baselineY
         if (start.y == baselineY && end.y != baselineY && nextBullish != bullish) {
             if (current.size >= 2) result += KlineLineGradientSegment(bullish, current)
@@ -602,7 +605,7 @@ internal fun DrawScope.drawKlineLineGradientFill(
     if (config?.enabled != true || points.size < 2) return
     val path = Path().apply {
         moveTo(points.first().x, points.first().y)
-        points.drop(1).forEach { lineTo(it.x, it.y) }
+        for (index in 1 until points.size) lineTo(points[index].x, points[index].y)
         lineTo(points.last().x, baselineY)
         lineTo(points.first().x, baselineY)
         close()
@@ -621,8 +624,9 @@ internal fun DrawScope.drawKlineLineGradientFill(
         KlineGradientTileMode.Decal -> TileMode.Decal
     }
     val brush = config.stops?.let { stops ->
+        val colorStops = Array(min(stops.size, colors.size)) { index -> stops[index] to colors[index] }
         Brush.linearGradient(
-            colorStops = stops.zip(colors).map { (stop, color) -> stop to color }.toTypedArray(),
+            colorStops = colorStops,
             start = start,
             end = end,
             tileMode = tileMode,
@@ -637,6 +641,71 @@ internal fun KlineGradientAlignment.resolveIn(rect: Rect): Offset = Offset(
 )
 /** Renders generic computed columns as aligned newest-first line series. */
 
+internal data class KlinePreparedIndicatorLine(
+    val path: Path,
+    val color: Color,
+    val widthPx: Float,
+)
+
+internal fun prepareIndicatorLines(
+    outputs: List<IndicatorOutput>,
+    range: IndexRange,
+    plotRect: Rect,
+    values: KlineValueRange,
+    viewport: KlineViewport,
+    style: KlineChartStyle,
+    colorOffset: Int = 0,
+    lineStyles: List<KlineIndicatorLineStyle> = emptyList(),
+    excludedColumns: Set<String> = emptySet(),
+): List<KlinePreparedIndicatorLine> {
+    if (outputs.isEmpty() || range.isEmpty) return emptyList()
+    var colorIndex = colorOffset
+    val indicatorColors = style.indicatorLines.ifEmpty { listOf(style.line) }
+    return buildList {
+        outputs.forEach { output ->
+            for (columnIndex in 0 until output.columnCount) {
+                val column = output.columnAt(columnIndex)
+                val configuredStyle = lineStyles.getOrNull(columnIndex)
+                if (column.name in excludedColumns || configuredStyle?.visible == false) {
+                    colorIndex++
+                    continue
+                }
+                val path = Path()
+                var hasPoint = false
+                for (index in range.startInclusive until range.endExclusive) {
+                    val value = column[index]
+                    if (!value.isFinite()) {
+                        hasPoint = false
+                        continue
+                    }
+                    val x = viewport.xForIndex(plotRect.right, index.toDouble()) - viewport.candleHalfStepPx
+                    val y = values.yFor(value, plotRect)
+                    if (hasPoint) path.lineTo(x, y) else path.moveTo(x, y)
+                    hasPoint = true
+                }
+                add(
+                    KlinePreparedIndicatorLine(
+                        path = path,
+                        color = configuredStyle?.color ?: indicatorColors[colorIndex % indicatorColors.size],
+                        widthPx = configuredStyle?.widthPx ?: 1.25f,
+                    ),
+                )
+                colorIndex++
+            }
+        }
+    }
+}
+
+internal fun DrawScope.drawPreparedIndicatorLines(lines: List<KlinePreparedIndicatorLine>) {
+    lines.forEach { line ->
+        drawPath(
+            path = line.path,
+            color = line.color,
+            style = Stroke(width = logicalPx(line.widthPx), cap = StrokeCap.Round),
+        )
+    }
+}
+
 internal fun DrawScope.drawIndicatorLines(
     outputs: List<IndicatorOutput>,
     range: IndexRange,
@@ -648,35 +717,19 @@ internal fun DrawScope.drawIndicatorLines(
     lineStyles: List<KlineIndicatorLineStyle> = emptyList(),
     excludedColumns: Set<String> = emptySet(),
 ) {
-    if (outputs.isEmpty() || range.isEmpty) return
-    var colorIndex = colorOffset
-    val indicatorColors = style.indicatorLines.ifEmpty { listOf(style.line) }
-    outputs.forEach { output ->
-        output.columns().forEachIndexed { columnIndex, column ->
-            val configuredStyle = lineStyles.getOrNull(columnIndex)
-            if (column.name in excludedColumns || configuredStyle?.visible == false) {
-                colorIndex++
-                return@forEachIndexed
-            }
-            val path = Path()
-            var hasPoint = false
-            for (index in range.startInclusive until range.endExclusive) {
-                val value = column[index]
-                if (!value.isFinite()) {
-                    hasPoint = false
-                    continue
-                }
-                val x = viewport.xForIndex(plotRect.right, index.toDouble()) - viewport.candleHalfStepPx
-                val y = values.yFor(value, plotRect)
-                if (hasPoint) path.lineTo(x, y) else path.moveTo(x, y)
-                hasPoint = true
-            }
-            val color = configuredStyle?.color ?: indicatorColors[colorIndex % indicatorColors.size]
-            val widthPx = configuredStyle?.widthPx ?: 1.25f
-            drawPath(path, color, style = Stroke(width = logicalPx(widthPx), cap = StrokeCap.Round))
-            colorIndex++
-        }
-    }
+    drawPreparedIndicatorLines(
+        prepareIndicatorLines(
+            outputs = outputs,
+            range = range,
+            plotRect = plotRect,
+            values = values,
+            viewport = viewport,
+            style = style,
+            colorOffset = colorOffset,
+            lineStyles = lineStyles,
+            excludedColumns = excludedColumns,
+        ),
+    )
 }
 /**
  * One immutable indicator draw context resolved for a physical chart frame.
@@ -690,6 +743,7 @@ internal fun DrawScope.drawIndicatorLines(
 internal data class KlineIndicatorRenderFrame(
     val item: KlineIndicatorRenderItem,
     val context: KlineIndicatorDrawContext,
+    val preparedLines: List<KlinePreparedIndicatorLine>? = null,
 )
 /** Indicator frames in main z-order and physical sub-pane order. */
 
@@ -729,9 +783,8 @@ internal fun resolveKlineIndicatorRenderFrames(
         item: KlineIndicatorRenderItem,
         pane: KlinePaneLayout,
         valueRange: KlineValueRange,
-    ): KlineIndicatorRenderFrame = KlineIndicatorRenderFrame(
-        item = item,
-        context = KlineIndicatorDrawContext(
+    ): KlineIndicatorRenderFrame {
+        val context = KlineIndicatorDrawContext(
             state = state,
             definition = item.definition,
             output = item.output,
@@ -742,8 +795,30 @@ internal fun resolveKlineIndicatorRenderFrames(
             style = style,
             colorIndex = item.colorIndex,
             densityScale = densityScale,
-        ),
-    )
+        )
+        val preparedLines = if (item.renderer === KlineComputedLineIndicatorRenderer) {
+            item.output?.let { output ->
+                prepareIndicatorLines(
+                    outputs = listOf(output),
+                    range = paintRange,
+                    plotRect = pane.plotRect,
+                    values = valueRange,
+                    viewport = state.viewport,
+                    style = style,
+                    colorOffset = item.colorIndex,
+                    lineStyles = item.definition.configuredLineStyles(),
+                    excludedColumns = item.definition.excludedLineColumns(),
+                )
+            } ?: emptyList()
+        } else {
+            null
+        }
+        return KlineIndicatorRenderFrame(
+            item = item,
+            context = context,
+            preparedLines = preparedLines,
+        )
+    }
     val main = if (hideMainIndicators) {
         emptyList()
     } else {
@@ -769,7 +844,7 @@ internal fun resolveKlineIndicatorRenderFrames(
             }
         }
     }
-    val subByPane = linkedMapOf<String, List<KlineIndicatorRenderFrame>>()
+    val subByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
     layout.subPanes.forEach { pane ->
         if (!pane.isDrawable()) return@forEach
         val items = indicatorPanePlan.subByPane[pane.id].orEmpty()
@@ -792,7 +867,7 @@ internal fun resolveKlineIndicatorRenderFrames(
         ) ?: targetValueRange
         subByPane[pane.id] = items.map { item -> frame(item, pane, valueRange) }
     }
-    return KlineIndicatorRenderFrames(main = main, subByPane = LinkedHashMap(subByPane))
+    return KlineIndicatorRenderFrames(main = main, subByPane = subByPane)
 }
 /** Draws one optional overlay phase without changing normal painter clipping. */
 
@@ -903,7 +978,15 @@ internal fun DrawScope.drawIndicatorFrames(
 }
 
 internal fun DrawScope.drawIndicatorFrame(frame: KlineIndicatorRenderFrame) {
-    frame.item.renderer.draw(scope = this, context = frame.context)
+    if (frame.item.renderer === KlineComputedLineIndicatorRenderer) {
+        KlineComputedLineIndicatorRenderer.draw(
+            scope = this,
+            context = frame.context,
+            preparedLines = frame.preparedLines,
+        )
+    } else {
+        frame.item.renderer.draw(scope = this, context = frame.context)
+    }
 }
 
 internal fun DrawScope.drawSubIndicatorFrames(
@@ -1623,16 +1706,13 @@ internal fun DrawScope.drawCrosshair(
     crosshair: KlineIndicatorCrosshairContext,
     state: KlineUiState,
     plotRect: Rect,
-    tooltipAnchorRect: Rect,
     verticalRect: Rect,
     crosshairRightPx: Float,
     values: KlineValueRange,
     style: KlineChartStyle,
     config: KlineCrosshairRenderConfig,
     textMeasurer: TextMeasurer,
-    crossTooltipProvider: KlineCrossTooltipProvider?,
-    stableTooltipContentWidthPx: Float?,
-    timeLabelFormatter: KlineTimeLabelFormatter,
+    tooltipPresentation: KlineCrossTooltipPresentation?,
 ): KlineCrosshairPaintResult? {
     if (!config.enabled) return null
     val position = crosshair.rawPosition
@@ -1680,19 +1760,7 @@ internal fun DrawScope.drawCrosshair(
         fallbackBorder = style.crosshair,
         drawableRect = plotRect,
     )
-    resolveKlineCrossTooltipPresentation(
-        crosshair = crosshair,
-        state = state,
-        plotRect = plotRect,
-        anchorRect = tooltipAnchorRect,
-        config = config,
-        style = style,
-        textMeasurer = textMeasurer,
-        densityScale = density,
-        timeLabelFormatter = timeLabelFormatter,
-        provider = crossTooltipProvider,
-        stableContentWidthPx = stableTooltipContentWidthPx,
-    )?.let(::drawKlineCrossTooltip)
+    tooltipPresentation?.let(::drawKlineCrossTooltip)
     return KlineCrosshairPaintResult(context = crosshair, value = value)
 }
 /** Builds deterministic two-column Cross Tooltip content, geometry, and text measurements. */
@@ -1831,7 +1899,8 @@ internal fun List<KlineCandle>.valueRangeIncluding(
     }
     if (includeMainIndicators) {
         mainOutputs.forEach { output ->
-            output.columns().forEach { column ->
+            for (columnIndex in 0 until output.columnCount) {
+                val column = output.columnAt(columnIndex)
                 for (index in paintRange.startInclusive until paintRange.endExclusive) {
                     val value = column[index]
                     if (!value.isFinite()) continue
@@ -1864,7 +1933,8 @@ internal fun List<IndicatorOutput>.valueRange(
     var low = minimum ?: Double.POSITIVE_INFINITY
     var high = Double.NEGATIVE_INFINITY
     forEach { output ->
-        output.columns().forEach { column ->
+        for (columnIndex in 0 until output.columnCount) {
+            val column = output.columnAt(columnIndex)
             for (index in range.startInclusive until range.endExclusive) {
                 val value = column[index]
                 if (value.isFinite()) {

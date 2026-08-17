@@ -174,6 +174,7 @@ class IndicatorRuntimeCoordinatorTest {
                 coordinator.state.filterNotNull().first { it.sourceRevision == tickRevision }
             }
             assertEquals(initialValues, tick.output(definition.key)!!.column("close")!!.asList())
+            assertTrue(coordinator.renderState.value === initial)
             assertEquals(1, calls.get())
 
             controller.updateLatest(
@@ -184,6 +185,7 @@ class IndicatorRuntimeCoordinatorTest {
             val boundary = withTimeout(2_000) {
                 coordinator.state.filterNotNull().first { it.sourceRevision == boundaryRevision }
             }
+            assertTrue(coordinator.renderState.value === boundary)
             assertEquals(2, calls.get())
             assertEquals(41.0, boundary.output(definition.key)!!.column("close")!![0])
         } finally {

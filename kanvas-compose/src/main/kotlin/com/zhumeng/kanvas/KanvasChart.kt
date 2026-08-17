@@ -50,9 +50,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -345,6 +347,209 @@ private class KlineRangeUpdateRef(
     var realtimeMode: Boolean = false,
 )
 
+private data class KlineMainBodyLayerKey(
+    val state: KlineUiState,
+    val layout: KlineLayout,
+    val renderRange: KlineMainRenderRange,
+    val frames: List<KlineIndicatorRenderFrame>,
+    val chartType: KlineChartType,
+    val candleZIndex: Int,
+    val style: KlineChartStyle,
+    val renderConfig: KlineChartRenderConfig,
+    val candleOverlayConfig: KlineCandleOverlayRenderConfig,
+    val candleGradients: KlineCandleGradientConfiguration,
+    val densityScale: Float,
+    val hideMainIndicators: Boolean,
+    val textMeasurer: TextMeasurer,
+)
+
+/** Plain draw-phase holder; it never participates in Compose snapshot observation. */
+private class KlineRecordedLayerCache {
+    private var key: Any? = null
+    private var size: IntSize = IntSize.Zero
+
+    fun needsRecord(key: Any, size: IntSize): Boolean = this.key != key || this.size != size
+
+    fun markRecorded(key: Any, size: IntSize) {
+        this.key = key
+        this.size = size
+    }
+}
+
+/** Small cache shared by Canvas and pointer routes; base and Tips-inset layouts occupy two entries. */
+private class KlineMainRenderRangeCache(
+    private val capacity: Int = 2,
+) {
+    private data class Entry(
+        val state: KlineUiState,
+        val layout: KlineLayout,
+        val panePlan: KlineIndicatorPanePlan,
+        val renderConfig: KlineChartRenderConfig,
+        val hideMainIndicators: Boolean,
+        val densityScale: Float,
+        val value: KlineMainRenderRange?,
+    )
+
+    private val entries = ArrayList<Entry>(capacity)
+
+    fun resolve(
+        state: KlineUiState,
+        layout: KlineLayout,
+        panePlan: KlineIndicatorPanePlan,
+        renderConfig: KlineChartRenderConfig,
+        hideMainIndicators: Boolean,
+        densityScale: Float,
+    ): KlineMainRenderRange? {
+        if (entries.isNotEmpty() && entries.first().state !== state) entries.clear()
+        entries.firstOrNull { entry ->
+            entry.state === state &&
+                entry.layout == layout &&
+                entry.panePlan === panePlan &&
+                entry.renderConfig == renderConfig &&
+                entry.hideMainIndicators == hideMainIndicators &&
+                entry.densityScale == densityScale
+        }?.let { return it.value }
+        val value = resolveKlineMainRenderRange(
+            state = state,
+            plotRect = layout.mainPane.plotRect,
+            renderConfig = renderConfig,
+            indicatorPanePlan = panePlan,
+            hideMainIndicators = hideMainIndicators,
+            densityScale = densityScale,
+        )
+        if (entries.size == capacity) entries.removeAt(0)
+        entries += Entry(
+            state = state,
+            layout = layout,
+            panePlan = panePlan,
+            renderConfig = renderConfig,
+            hideMainIndicators = hideMainIndicators,
+            densityScale = densityScale,
+            value = value,
+        )
+        return value
+    }
+}
+
+/** Reuses immutable indicator contexts while chart geometry and output inputs are unchanged. */
+private class KlineIndicatorRenderFramesCache(
+    private val capacity: Int = 2,
+) {
+    private data class Entry(
+        val state: KlineUiState,
+        val layout: KlineLayout,
+        val panePlan: KlineIndicatorPanePlan,
+        val paintRange: IndexRange,
+        val mainValueRange: KlineValueRange,
+        val style: KlineChartStyle,
+        val densityScale: Float,
+        val hideMainIndicators: Boolean,
+        val sameValueExpansionRatios: List<Float>,
+        val subPaneRangeSmoothers: KlinePaneValueRangeSmoothers?,
+        val subPaneRangeResetKey: Any?,
+        val subPaneRangeTransition: KlineValueRangeTransition?,
+        val value: KlineIndicatorRenderFrames,
+    )
+
+    private val entries = ArrayList<Entry>(capacity)
+
+    fun resolve(
+        state: KlineUiState,
+        layout: KlineLayout,
+        panePlan: KlineIndicatorPanePlan,
+        paintRange: IndexRange,
+        mainValueRange: KlineValueRange,
+        style: KlineChartStyle,
+        densityScale: Float,
+        hideMainIndicators: Boolean,
+        sameValueExpansionRatios: List<Float>,
+        subPaneRangeSmoothers: KlinePaneValueRangeSmoothers?,
+        subPaneRangeResetKey: Any?,
+        subPaneRangeTransition: KlineValueRangeTransition?,
+    ): KlineIndicatorRenderFrames {
+        if (entries.isNotEmpty() && entries.first().state !== state) entries.clear()
+        entries.firstOrNull { entry ->
+            entry.state === state &&
+                entry.layout == layout &&
+                entry.panePlan === panePlan &&
+                entry.paintRange == paintRange &&
+                entry.mainValueRange == mainValueRange &&
+                entry.style == style &&
+                entry.densityScale == densityScale &&
+                entry.hideMainIndicators == hideMainIndicators &&
+                entry.sameValueExpansionRatios == sameValueExpansionRatios &&
+                entry.subPaneRangeSmoothers === subPaneRangeSmoothers &&
+                entry.subPaneRangeResetKey == subPaneRangeResetKey &&
+                entry.subPaneRangeTransition == subPaneRangeTransition
+        }?.let { return it.value }
+        val value = resolveKlineIndicatorRenderFrames(
+            state = state,
+            layout = layout,
+            indicatorPanePlan = panePlan,
+            paintRange = paintRange,
+            mainValueRange = mainValueRange,
+            style = style,
+            densityScale = densityScale,
+            hideMainIndicators = hideMainIndicators,
+            sameValueExpansionRatios = sameValueExpansionRatios,
+            subPaneRangeSmoothers = subPaneRangeSmoothers,
+            subPaneRangeResetKey = subPaneRangeResetKey,
+            subPaneRangeTransition = subPaneRangeTransition,
+        )
+        if (entries.size == capacity) entries.removeAt(0)
+        entries += Entry(
+            state = state,
+            layout = layout,
+            panePlan = panePlan,
+            paintRange = paintRange,
+            mainValueRange = mainValueRange,
+            style = style,
+            densityScale = densityScale,
+            hideMainIndicators = hideMainIndicators,
+            sameValueExpansionRatios = sameValueExpansionRatios,
+            subPaneRangeSmoothers = subPaneRangeSmoothers,
+            subPaneRangeResetKey = subPaneRangeResetKey,
+            subPaneRangeTransition = subPaneRangeTransition,
+            value = value,
+        )
+        return value
+    }
+}
+
+private data class KlineCrossTooltipPresentationCacheKey(
+    val crosshair: KlineIndicatorCrosshairContext,
+    val state: KlineUiState,
+    val plotRect: Rect,
+    val anchorRect: Rect,
+    val config: KlineCrosshairRenderConfig,
+    val style: KlineChartStyle,
+    val densityScale: Float,
+    val timeLabelFormatter: KlineTimeLabelFormatter,
+    val provider: KlineCrossTooltipProvider?,
+    val stableContentWidthPx: Float?,
+)
+
+/** Retains the immutable tooltip layout shared by width tracking, drawing, and taps. */
+private class KlineCrossTooltipPresentationCache {
+    private var key: KlineCrossTooltipPresentationCacheKey? = null
+    private var resolved: Boolean = false
+    private var presentation: KlineCrossTooltipPresentation? = null
+
+    fun matches(key: KlineCrossTooltipPresentationCacheKey): Boolean =
+        resolved && this.key == key
+
+    fun value(): KlineCrossTooltipPresentation? = presentation
+
+    fun update(
+        key: KlineCrossTooltipPresentationCacheKey,
+        presentation: KlineCrossTooltipPresentation?,
+    ) {
+        this.key = key
+        this.presentation = presentation
+        resolved = true
+    }
+}
+
 private const val KlineHistoricalSubPaneRangeTransitionDurationMillis = 160
 
 /** Current owner of one Compose pointer session; later owners reserve higher-priority branches. */
@@ -599,11 +804,16 @@ fun KanvasChart(
     // axis, time, Tips, and Cross strings. Retain enough layouts to avoid
     // evicting and remeasuring the same labels on every drag frame.
     val textMeasurer = rememberTextMeasurer(cacheSize = 64)
+    val mainBodyLayer = rememberGraphicsLayer()
+    val mainBodyLayerCache = remember { KlineRecordedLayerCache() }
     val orderMarkerIndex = remember(orderMarkers) { KlineOrderMarkerIndex(orderMarkers) }
     val defaultTimeLabelFormatter = remember { DefaultKlineTimeLabelFormatter(Locale.getDefault()) }
     val drawingTimeLabelFormatter = remember { SimpleDateFormat("M/d HH:mm", Locale.getDefault()) }
+    val defaultTimeLabelFormatterFunction: KlineTimeLabelFormatter = remember(defaultTimeLabelFormatter) {
+        { candle, interval -> defaultTimeLabelFormatter.format(candle, interval) }
+    }
     val appliedTimeLabelFormatter: KlineTimeLabelFormatter = timeLabelFormatter
-        ?: { candle, interval -> defaultTimeLabelFormatter.format(candle, interval) }
+        ?: defaultTimeLabelFormatterFunction
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var crosshair by remember { mutableStateOf<Offset?>(null) }
     val crosshairSessionRef = remember { CrosshairSessionRef() }
@@ -749,6 +959,7 @@ fun KanvasChart(
             renderers = activeRendererResolver,
         )
     }
+    val currentIndicatorPanePlan = rememberUpdatedState(indicatorPanePlan)
     val indicatorSubPaneSpecs = remember(indicatorPanePlan) { indicatorPanePlan.subPaneSpecs }
     val subPaneRangeSmoothers = remember(state.spec?.key) { KlinePaneValueRangeSmoothers() }
     SideEffect {
@@ -790,9 +1001,6 @@ fun KanvasChart(
     // reads these remembered holders during the gesture instead.
     val currentState = rememberUpdatedState(state)
     val currentRenderConfig = rememberUpdatedState(renderConfig)
-    val currentIndicatorSnapshot = rememberUpdatedState(indicatorSnapshot)
-    val currentIndicatorRegistrySnapshot = rememberUpdatedState(indicatorRegistrySnapshot)
-    val currentIndicatorRendererResolver = rememberUpdatedState(activeRendererResolver)
     val currentOnUnsupportedIndicators = rememberUpdatedState(onUnsupportedIndicators)
     val currentOnLayoutChange = rememberUpdatedState(onLayoutChange)
     val currentPaneConfig = rememberUpdatedState(appliedPaneConfig)
@@ -856,10 +1064,31 @@ fun KanvasChart(
             )
         }
     }
+    val currentReportedLayout = rememberUpdatedState(reportedLayout)
+    val mainRenderRangeCache = remember { KlineMainRenderRangeCache() }
+    val indicatorRenderFramesCache = remember { KlineIndicatorRenderFramesCache() }
+    val crossTooltipPresentationCache = remember { KlineCrossTooltipPresentationCache() }
     // A parent may replace its callback after the layout has stabilized; send
     // the current value to the new observer as well as on geometry changes.
     LaunchedEffect(reportedLayout, currentOnLayoutChange.value) {
         reportedLayout?.let(currentOnLayoutChange.value)
+    }
+
+    fun resolveCurrentLayout(): KlineLayout? {
+        if (canvasSize.width <= 0 || canvasSize.height <= 0) return null
+        currentReportedLayout.value?.takeIf { layout ->
+            layout.canvasRect.width == canvasSize.width.toFloat() &&
+                layout.canvasRect.height == canvasSize.height.toFloat()
+        }?.let { return it }
+        val active = currentIndicatorPanePlan.value
+        return resolveChartLayout(
+            canvasSize = Size(canvasSize.width.toFloat(), canvasSize.height.toFloat()),
+            axisWidthPx = currentAxisWidthPx.value,
+            timeAxisHeightPx = currentTimeAxisHeightPx.value,
+            densityScale = currentDensityScale.value,
+            paneConfig = currentPaneConfig.value,
+            subPaneSpecs = active.subPaneSpecs,
+        )
     }
 
     fun updateCrosshair(position: Offset?) {
@@ -870,32 +1099,17 @@ fun KanvasChart(
         }
         val current = currentState.value
         val activeAndLayout = if (position != null && canvasSize != IntSize.Zero) {
-            val active = currentIndicatorSnapshot.value.resolveIndicatorPanePlan(
-                state = current,
-                registry = currentIndicatorRegistrySnapshot.value,
-                renderers = currentIndicatorRendererResolver.value,
-            )
-            val currentAxisWidth = currentAxisWidthPx.value
-            val currentTimeAxisHeight = currentTimeAxisHeightPx.value
-            val currentDensity = currentDensityScale.value
-            active to resolveChartLayout(
-                canvasSize = Size(canvasSize.width.toFloat(), canvasSize.height.toFloat()),
-                axisWidthPx = currentAxisWidth,
-                timeAxisHeightPx = currentTimeAxisHeight,
-                densityScale = currentDensity,
-                paneConfig = currentPaneConfig.value,
-                subPaneSpecs = active.subPaneSpecs,
-            )
+            resolveCurrentLayout()?.let { layout -> currentIndicatorPanePlan.value to layout }
         } else {
             null
         }
         val layout = activeAndLayout?.second
         val mainRange = activeAndLayout?.let { (active, resolvedLayout) ->
-            resolveKlineMainRenderRange(
+            mainRenderRangeCache.resolve(
                 state = current,
-                plotRect = resolvedLayout.mainPane.plotRect,
+                layout = resolvedLayout,
+                panePlan = active,
                 renderConfig = currentRenderConfig.value,
-                indicatorPanePlan = active,
                 hideMainIndicators = currentHideMainIndicatorsInLineChartMode.value &&
                     currentChartType.value is KlineChartType.Line,
                 densityScale = currentDensityScale.value,
@@ -917,35 +1131,14 @@ fun KanvasChart(
         updateCrosshair(position)
     }
 
-    fun resolveCurrentLayout(current: KlineUiState): KlineLayout? {
-        if (canvasSize.width <= 0 || canvasSize.height <= 0) return null
-        val active = currentIndicatorSnapshot.value.resolveIndicatorPanePlan(
-            state = current,
-            registry = currentIndicatorRegistrySnapshot.value,
-            renderers = currentIndicatorRendererResolver.value,
-        )
-        return resolveChartLayout(
-            canvasSize = Size(canvasSize.width.toFloat(), canvasSize.height.toFloat()),
-            axisWidthPx = currentAxisWidthPx.value,
-            timeAxisHeightPx = currentTimeAxisHeightPx.value,
-            densityScale = currentDensityScale.value,
-            paneConfig = currentPaneConfig.value,
-            subPaneSpecs = active.subPaneSpecs,
-        )
-    }
-
     fun resolveDrawingSpace(current: KlineUiState): DrawingCoordinateSpace? {
-        val layout = resolveCurrentLayout(current) ?: return null
-        val active = currentIndicatorSnapshot.value.resolveIndicatorPanePlan(
+        val layout = resolveCurrentLayout() ?: return null
+        val active = currentIndicatorPanePlan.value
+        val mainRange = mainRenderRangeCache.resolve(
             state = current,
-            registry = currentIndicatorRegistrySnapshot.value,
-            renderers = currentIndicatorRendererResolver.value,
-        )
-        val mainRange = resolveKlineMainRenderRange(
-            state = current,
-            plotRect = layout.mainPane.plotRect,
+            layout = layout,
+            panePlan = active,
             renderConfig = currentRenderConfig.value,
-            indicatorPanePlan = active,
             hideMainIndicators = currentHideMainIndicatorsInLineChartMode.value &&
                 currentChartType.value is KlineChartType.Line,
             densityScale = currentDensityScale.value,
@@ -958,12 +1151,71 @@ fun KanvasChart(
             maxValue = mainRange.valueRange.maximum,
         )
     }
+    fun resolveCachedCrossTooltipPresentation(
+        crosshair: KlineIndicatorCrosshairContext,
+        state: KlineUiState,
+        plotRect: Rect,
+        anchorRect: Rect,
+        config: KlineCrosshairRenderConfig,
+        style: KlineChartStyle,
+        densityScale: Float,
+        timeLabelFormatter: KlineTimeLabelFormatter,
+        provider: KlineCrossTooltipProvider?,
+        stableContentWidthPx: Float?,
+    ): KlineCrossTooltipPresentation? {
+        // Runtime callbacks may intentionally read host-owned mutable state.
+        // Cache only the built-in pure provider/formatter path so those reads
+        // keep their original draw invalidation semantics.
+        if (provider != null || timeLabelFormatter !== defaultTimeLabelFormatterFunction) {
+            return resolveKlineCrossTooltipPresentation(
+                crosshair = crosshair,
+                state = state,
+                plotRect = plotRect,
+                anchorRect = anchorRect,
+                config = config,
+                style = style,
+                textMeasurer = textMeasurer,
+                densityScale = densityScale,
+                timeLabelFormatter = timeLabelFormatter,
+                provider = provider,
+                stableContentWidthPx = stableContentWidthPx,
+            )
+        }
+        val key = KlineCrossTooltipPresentationCacheKey(
+            crosshair = crosshair,
+            state = state,
+            plotRect = plotRect,
+            anchorRect = anchorRect,
+            config = config,
+            style = style,
+            densityScale = densityScale,
+            timeLabelFormatter = timeLabelFormatter,
+            provider = provider,
+            stableContentWidthPx = stableContentWidthPx,
+        )
+        if (crossTooltipPresentationCache.matches(key)) return crossTooltipPresentationCache.value()
+        val presentation = resolveKlineCrossTooltipPresentation(
+            crosshair = crosshair,
+            state = state,
+            plotRect = plotRect,
+            anchorRect = anchorRect,
+            config = config,
+            style = style,
+            textMeasurer = textMeasurer,
+            densityScale = densityScale,
+            timeLabelFormatter = timeLabelFormatter,
+            provider = provider,
+            stableContentWidthPx = stableContentWidthPx,
+        )
+        crossTooltipPresentationCache.update(key, presentation)
+        return presentation
+    }
     /** Rebuilds Cross tooltip geometry for both Canvas stability tracking and pointer routing. */
 
     fun resolveCurrentCrossTooltipPresentation(): KlineCrossTooltipPresentation? {
         val position = crosshair ?: return null
         val current = currentState.value
-        val layout = resolveCurrentLayout(current) ?: return null
+        val layout = resolveCurrentLayout() ?: return null
         val config = currentRenderConfig.value.crosshair
         val crosshairContext = resolveKlineIndicatorCrosshairContext(
             inputPosition = position,
@@ -972,14 +1224,13 @@ fun KanvasChart(
             renderConfig = config,
             crosshairRightPx = layout.mainPane.plotRect.right,
         ) ?: return null
-        return resolveKlineCrossTooltipPresentation(
+        return resolveCachedCrossTooltipPresentation(
             crosshair = crosshairContext,
             state = current,
             plotRect = layout.mainPane.plotRect,
             anchorRect = layout.mainPane.outerRect,
             config = config,
             style = currentStyle.value,
-            textMeasurer = textMeasurer,
             densityScale = currentDensityScale.value,
             timeLabelFormatter = currentTimeLabelFormatter.value,
             provider = currentCrossTooltipProvider.value,
@@ -1003,34 +1254,23 @@ fun KanvasChart(
         current: KlineUiState,
     ): Pair<KlineLayout, KlineIndicatorRenderFrames>? {
         if (canvasSize.width <= 0 || canvasSize.height <= 0 || current.series.isEmpty) return null
-        val active = currentIndicatorSnapshot.value.resolveIndicatorPanePlan(
-            state = current,
-            registry = currentIndicatorRegistrySnapshot.value,
-            renderers = currentIndicatorRendererResolver.value,
-        )
+        val active = currentIndicatorPanePlan.value
         val density = currentDensityScale.value
-        val layout = resolveChartLayout(
-            canvasSize = Size(canvasSize.width.toFloat(), canvasSize.height.toFloat()),
-            axisWidthPx = currentAxisWidthPx.value,
-            timeAxisHeightPx = currentTimeAxisHeightPx.value,
-            densityScale = density,
-            paneConfig = currentPaneConfig.value,
-            subPaneSpecs = active.subPaneSpecs,
-        )
+        val layout = resolveCurrentLayout() ?: return null
         val hideMain = currentHideMainIndicatorsInLineChartMode.value &&
             currentChartType.value is KlineChartType.Line
-        val mainRange = resolveKlineMainRenderRange(
+        val mainRange = mainRenderRangeCache.resolve(
             state = current,
-            plotRect = layout.mainPane.plotRect,
+            layout = layout,
+            panePlan = active,
             renderConfig = currentRenderConfig.value,
-            indicatorPanePlan = active,
             hideMainIndicators = hideMain,
             densityScale = density,
         ) ?: return null
-        return layout to resolveKlineIndicatorRenderFrames(
+        return layout to indicatorRenderFramesCache.resolve(
             state = current,
             layout = layout,
-            indicatorPanePlan = active,
+            panePlan = active,
             paintRange = mainRange.paintRange,
             mainValueRange = mainRange.valueRange,
             style = currentStyle.value,
@@ -1072,20 +1312,16 @@ fun KanvasChart(
     fun resolveOffViewLatestPriceHitTarget(): Rect? {
         val current = currentState.value
         if (current.series.isEmpty) return null
-        val layout = resolveCurrentLayout(current) ?: return null
+        val layout = resolveCurrentLayout() ?: return null
         val plotRect = layout.mainPane.plotRect
         if (plotRect.width <= 0f || plotRect.height <= 0f) return null
         val density = currentDensityScale.value
-        val active = currentIndicatorSnapshot.value.resolveIndicatorPanePlan(
+        val active = currentIndicatorPanePlan.value
+        val range = mainRenderRangeCache.resolve(
             state = current,
-            registry = currentIndicatorRegistrySnapshot.value,
-            renderers = currentIndicatorRendererResolver.value,
-        )
-        val range = resolveKlineMainRenderRange(
-            state = current,
-            plotRect = plotRect,
+            layout = layout,
+            panePlan = active,
             renderConfig = currentRenderConfig.value,
-            indicatorPanePlan = active,
             hideMainIndicators = currentHideMainIndicatorsInLineChartMode.value &&
                 currentChartType.value is KlineChartType.Line,
             densityScale = density,
@@ -1114,7 +1350,7 @@ fun KanvasChart(
         }
         val current = currentState.value
         if (current.series.isEmpty) return
-        val layout = resolveCurrentLayout(current) ?: return
+        val layout = resolveCurrentLayout() ?: return
         val constraints = current.viewportConstraints
             ?: currentRenderConfig.value.viewport.constraints(
                 plotWidthPx = layout.mainPane.plotRect.width,
@@ -1167,7 +1403,7 @@ fun KanvasChart(
 
     fun updateNonTouchViewport(position: Offset, scrollDelta: Offset) {
         val current = currentState.value
-        val layout = resolveCurrentLayout(current) ?: return
+        val layout = resolveCurrentLayout() ?: return
         val gesture = currentRenderConfig.value.gesture
         val constraints = current.viewportConstraints
             ?: currentRenderConfig.value.viewport.constraints(
@@ -1371,7 +1607,7 @@ fun KanvasChart(
                         PointerEventType.Enter -> startCrosshair(change.position, CrosshairSession.Hover)
                         PointerEventType.Move -> {
                             val position = change.position
-                            val layout = resolveCurrentLayout(currentState.value)
+                            val layout = resolveCurrentLayout()
                             hoverInVerticalZoomTarget =
                                 currentRenderConfig.value.gesture.enableZoom &&
                                     layout != null &&
@@ -1397,7 +1633,7 @@ fun KanvasChart(
                             if (crosshairSessionRef.value == CrosshairSession.Hover) updateCrosshair(null)
                         }
                         PointerEventType.Scroll -> {
-                            val layout = resolveCurrentLayout(currentState.value)
+                            val layout = resolveCurrentLayout()
                             val inZoomTarget = currentRenderConfig.value.gesture.enableZoom &&
                                 layout != null &&
                                 change.position.x in layout.axisRect.left..layout.axisRect.right &&
@@ -1628,7 +1864,7 @@ fun KanvasChart(
                             null,
                             -> Unit
                         }
-                        resolveCurrentLayout(currentState.value)?.let { startLayout ->
+                        resolveCurrentLayout()?.let { startLayout ->
                             val paneConfigAtStart = currentPaneConfig.value
                             val resizablePanes = listOf(startLayout.mainPane) + startLayout.subPanes
                             if (
@@ -1856,19 +2092,23 @@ fun KanvasChart(
                                     PointerGestureOwner.DrawingEdit -> {
                                         val controller = currentDrawingController.value
                                         val space = resolveDrawingSpace(currentState.value)
-                                        controller?.updatePointer(latestPosition)
                                         if (
                                             controller?.snapshot?.state is DrawingState.Editing &&
                                             space != null
                                         ) {
-                                            controller.snap(
+                                            val moved = controller.snap(
                                                 position = latestPosition,
                                                 space = space,
                                                 candles = currentState.value.series.candles,
                                                 minDistancePx =
                                                     currentDrawingConfig.value.magnetDistancePx *
                                                         currentDensityScale.value,
-                                            )?.let(controller::moveSelectedPoint)
+                                            )?.let { point ->
+                                                controller.moveSelectedPoint(point, pointer = latestPosition)
+                                            } == true
+                                            if (!moved) controller.updatePointer(latestPosition)
+                                        } else {
+                                            controller?.updatePointer(latestPosition)
                                         }
                                         consumePositionChanges(event)
                                     }
@@ -1878,13 +2118,14 @@ fun KanvasChart(
                                         val currentPoint = space?.unproject(latestPosition)
                                         val previousPoint = drawingMoveLastPoint
                                         if (controller != null && currentPoint != null && previousPoint != null) {
-                                            controller.moveSelectedBy(
+                                            val moved = controller.moveSelectedBy(
                                                 deltaTimestampMillis =
                                                     currentPoint.timestampMillis - previousPoint.timestampMillis,
                                                 deltaValue = currentPoint.value - previousPoint.value,
+                                                pointer = latestPosition,
                                             )
                                             drawingMoveLastPoint = currentPoint
-                                            controller.updatePointer(latestPosition)
+                                            if (!moved) controller.updatePointer(latestPosition)
                                         }
                                         consumePositionChanges(event)
                                     }
@@ -1937,7 +2178,7 @@ fun KanvasChart(
                                         val delta = event.calculatePan().y / 2f *
                                             currentRenderConfig.value.gesture.zoomSpeed
                                         if (delta != 0f) {
-                                            val layout = resolveCurrentLayout(currentState.value)
+                                            val layout = resolveCurrentLayout()
                                             val maxInset = layout?.mainPane?.outerRect?.height
                                                 ?.div(2f)
                                                 ?.minus(1f)
@@ -2163,11 +2404,11 @@ fun KanvasChart(
                 return@Canvas
             }
             val hideMainIndicators = hideMainIndicatorsInLineChartMode && appliedChartType is KlineChartType.Line
-            val exactBaseMainRenderRange = resolveKlineMainRenderRange(
+            val exactBaseMainRenderRange = mainRenderRangeCache.resolve(
                 state = state,
-                plotRect = basePlotRect,
+                layout = baseLayout,
+                panePlan = indicatorPanePlan,
                 renderConfig = renderConfig,
-                indicatorPanePlan = indicatorPanePlan,
                 hideMainIndicators = hideMainIndicators,
                 densityScale = densityScale,
             ) ?: return@Canvas
@@ -2178,10 +2419,10 @@ fun KanvasChart(
                     resetKey = state.spec?.key,
                 ),
             )
-            val baseIndicatorFrames = resolveKlineIndicatorRenderFrames(
+            val baseIndicatorFrames = indicatorRenderFramesCache.resolve(
                 state = state,
                 layout = baseLayout,
-                indicatorPanePlan = indicatorPanePlan,
+                panePlan = indicatorPanePlan,
                 paintRange = baseMainRenderRange.paintRange,
                 mainValueRange = baseMainRenderRange.valueRange,
                 style = appliedStyle,
@@ -2224,11 +2465,11 @@ fun KanvasChart(
             val mainRenderRange = if (layout === baseLayout) {
                 baseMainRenderRange
             } else {
-                resolveKlineMainRenderRange(
+                mainRenderRangeCache.resolve(
                     state = state,
-                    plotRect = plotRect,
+                    layout = layout,
+                    panePlan = indicatorPanePlan,
                     renderConfig = renderConfig,
-                    indicatorPanePlan = indicatorPanePlan,
                     hideMainIndicators = hideMainIndicators,
                     densityScale = densityScale,
                 )?.let { exact ->
@@ -2246,10 +2487,10 @@ fun KanvasChart(
             val indicatorFrames = if (layout === baseLayout) {
                 baseIndicatorFrames
             } else {
-                resolveKlineIndicatorRenderFrames(
+                indicatorRenderFramesCache.resolve(
                     state = state,
                     layout = layout,
-                    indicatorPanePlan = indicatorPanePlan,
+                    panePlan = indicatorPanePlan,
                     paintRange = paintRange,
                     mainValueRange = range,
                     style = appliedStyle,
@@ -2317,71 +2558,8 @@ fun KanvasChart(
                     textMeasurer = textMeasurer,
                 )
             }
-            drawGrid(
-                plotRect = plotRect,
-                style = appliedStyle,
-                config = renderConfig.grid,
-                textMeasurer = textMeasurer,
-                range = range,
-                precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                includeBottomAxisLabel = true,
-                drawYAxisTicks = false,
-            )
-            // Treat the candle body plus high/low marks or the line latest
-            // point as one rendering phase.
-            // Keep them as one z-index unit relative to Main indicators.
-            // Latest-price markers stay below as Candle's separate overlay
-            // phase, intentionally above the chart body layer.
-
-            fun drawCandleChartPhase() {
-                clipRect(plotRect.left, plotRect.top, plotRect.right, plotRect.bottom) {
-                    when (appliedChartType) {
-                        is KlineChartType.Bar -> drawBars(
-                            state.series.candles,
-                            paintRange,
-                            plotRect,
-                            range,
-                            state.viewport,
-                            appliedChartType.style,
-                            appliedStyle,
-                            renderConfig.candle,
-                        )
-                        is KlineChartType.Line -> drawLineChart(
-                            state.series.candles,
-                            paintRange,
-                            plotRect,
-                            range,
-                            state.viewport,
-                            appliedChartType.style,
-                            appliedStyle,
-                            renderConfig.candle,
-                            appliedCandleGradients,
-                        )
-                    }
-                }
-                if (appliedChartType is KlineChartType.Bar) {
-                    drawHighLowMarks(
-                        candles = state.series.candles,
-                        range = paintRange,
-                        plotRect = plotRect,
-                        values = range,
-                        viewport = state.viewport,
-                        precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                        style = appliedStyle,
-                        config = appliedCandleOverlayConfig,
-                        textMeasurer = textMeasurer,
-                    )
-                } else if (appliedChartType is KlineChartType.Line) {
-                    drawLatestLinePoint(
-                        latest = state.series.latest,
-                        plotRect = plotRect,
-                        values = range,
-                        viewport = state.viewport,
-                        style = appliedStyle,
-                        config = appliedCandleOverlayConfig,
-                    )
-                }
-                drawYAxisTicks(
+            val drawMainBody: DrawScope.() -> Unit = {
+                drawGrid(
                     plotRect = plotRect,
                     style = appliedStyle,
                     config = renderConfig.grid,
@@ -2389,30 +2567,130 @@ fun KanvasChart(
                     range = range,
                     precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
                     includeBottomAxisLabel = true,
-                    textArea = renderConfig.grid.ticksText,
+                    drawYAxisTicks = false,
                 )
-            }
+                // Treat the candle body plus high/low marks or the line latest
+                // point as one rendering phase. Keep them as one z-index unit
+                // relative to Main indicators.
+                fun DrawScope.drawCandleChartPhase() {
+                    clipRect(plotRect.left, plotRect.top, plotRect.right, plotRect.bottom) {
+                        when (appliedChartType) {
+                            is KlineChartType.Bar -> drawBars(
+                                state.series.candles,
+                                paintRange,
+                                plotRect,
+                                range,
+                                state.viewport,
+                                appliedChartType.style,
+                                appliedStyle,
+                                renderConfig.candle,
+                            )
+                            is KlineChartType.Line -> drawLineChart(
+                                state.series.candles,
+                                paintRange,
+                                plotRect,
+                                range,
+                                state.viewport,
+                                appliedChartType.style,
+                                appliedStyle,
+                                renderConfig.candle,
+                                appliedCandleGradients,
+                            )
+                        }
+                    }
+                    if (appliedChartType is KlineChartType.Bar) {
+                        drawHighLowMarks(
+                            candles = state.series.candles,
+                            range = paintRange,
+                            plotRect = plotRect,
+                            values = range,
+                            viewport = state.viewport,
+                            precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
+                            style = appliedStyle,
+                            config = appliedCandleOverlayConfig,
+                            textMeasurer = textMeasurer,
+                        )
+                    } else if (appliedChartType is KlineChartType.Line) {
+                        drawLatestLinePoint(
+                            latest = state.series.latest,
+                            plotRect = plotRect,
+                            values = range,
+                            viewport = state.viewport,
+                            style = appliedStyle,
+                            config = appliedCandleOverlayConfig,
+                        )
+                    }
+                    drawYAxisTicks(
+                        plotRect = plotRect,
+                        style = appliedStyle,
+                        config = renderConfig.grid,
+                        textMeasurer = textMeasurer,
+                        range = range,
+                        precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
+                        includeBottomAxisLabel = true,
+                        textArea = renderConfig.grid.ticksText,
+                    )
+                }
 
-            fun drawMainItems(frames: List<KlineIndicatorRenderFrame>) {
-                drawMainIndicatorFrames(
-                    mainPane = layout.mainPane,
-                    frames = frames,
-                    style = appliedStyle,
-                    grid = renderConfig.grid,
-                    textMeasurer = textMeasurer,
-                    precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                )
+                fun DrawScope.drawMainItems(frames: List<KlineIndicatorRenderFrame>) {
+                    drawMainIndicatorFrames(
+                        mainPane = layout.mainPane,
+                        frames = frames,
+                        style = appliedStyle,
+                        grid = renderConfig.grid,
+                        textMeasurer = textMeasurer,
+                        precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
+                    )
+                }
+                if (hideMainIndicators) {
+                    drawCandleChartPhase()
+                } else {
+                    val split = indicatorFrames.main.indexOfFirst { frame ->
+                        frame.item.definition.zIndex >= appliedCandleZIndex
+                    }.let { index -> if (index < 0) indicatorFrames.main.size else index }
+                    drawMainItems(indicatorFrames.main.subList(0, split))
+                    drawCandleChartPhase()
+                    drawMainItems(indicatorFrames.main.subList(split, indicatorFrames.main.size))
+                }
             }
-            if (hideMainIndicators) {
-                drawCandleChartPhase()
+            val mainBodyKey = KlineMainBodyLayerKey(
+                state = state,
+                layout = layout,
+                renderRange = mainRenderRange,
+                frames = indicatorFrames.main,
+                chartType = appliedChartType,
+                candleZIndex = appliedCandleZIndex,
+                style = appliedStyle,
+                renderConfig = renderConfig,
+                candleOverlayConfig = appliedCandleOverlayConfig,
+                candleGradients = appliedCandleGradients,
+                densityScale = densityScale,
+                hideMainIndicators = hideMainIndicators,
+                textMeasurer = textMeasurer,
+            )
+            val mainBodySize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+            val canCacheMainBody = indicatorFrames.main.all { frame ->
+                frame.item.renderer === KlineComputedLineIndicatorRenderer ||
+                    frame.item.renderer === KlineVolumeIndicatorRenderer ||
+                    frame.item.renderer === KlineSarIndicatorRenderer
+            }
+            if (canCacheMainBody) {
+                if (mainBodyLayerCache.needsRecord(mainBodyKey, mainBodySize)) {
+                    mainBodyLayer.record(
+                        density = this,
+                        layoutDirection = layoutDirection,
+                        size = mainBodySize,
+                        block = drawMainBody,
+                    )
+                    mainBodyLayerCache.markRecorded(mainBodyKey, mainBodySize)
+                }
+                drawLayer(mainBodyLayer)
             } else {
-                val split = indicatorFrames.main.indexOfFirst { frame ->
-                    frame.item.definition.zIndex >= appliedCandleZIndex
-                }.let { index -> if (index < 0) indicatorFrames.main.size else index }
-                drawMainItems(indicatorFrames.main.subList(0, split))
-                drawCandleChartPhase()
-                drawMainItems(indicatorFrames.main.subList(split, indicatorFrames.main.size))
-           }
+                // Custom renderers may rely on Compose draw-state observation.
+                // Keep their original per-frame execution semantics unless
+                // they opt into an explicit cache contract in the future.
+                drawMainBody()
+            }
 
             fun drawMainOverlayPhase() {
 
@@ -2561,10 +2839,11 @@ fun KanvasChart(
                 if (activeOverlay != null) {
                     val ticksConfig = drawingConfig.ticksText.toKlineTextAreaRenderConfig()
                     val ticksColor = activeOverlay.line.color
-                    val priceTickRects = activeOverlay.points.mapNotNull { point ->
-                        val resolvedPoint = point ?: return@mapNotNull null
-                        val position = drawingSpace.project(resolvedPoint) ?: return@mapNotNull null
-                        drawKlineTextArea(
+                    val priceTickRects = ArrayList<Rect>(activeOverlay.points.size)
+                    activeOverlay.points.forEach { point ->
+                        val resolvedPoint = point ?: return@forEach
+                        val position = drawingSpace.project(resolvedPoint) ?: return@forEach
+                        priceTickRects += drawKlineTextArea(
                             text = "%.${state.spec?.precision ?: KlineSpec.DefaultPrecision}f".format(
                                 Locale.US,
                                 resolvedPoint.value,
@@ -2581,8 +2860,11 @@ fun KanvasChart(
                             fallbackBackground = ticksColor,
                             drawableRect = layout.mainPane.outerRect,
                         )
-                    }.sortedBy(Rect::top)
-                    priceTickRects.zipWithNext().forEach { (upper, lower) ->
+                    }
+                    priceTickRects.sortBy(Rect::top)
+                    for (index in 0 until priceTickRects.lastIndex) {
+                        val upper = priceTickRects[index]
+                        val lower = priceTickRects[index + 1]
                         if (lower.top > upper.bottom) {
                             drawRect(
                                 color = ticksColor.copy(alpha = drawingConfig.ticksGapBackgroundOpacity),
@@ -2701,20 +2983,29 @@ fun KanvasChart(
                 if (firstMainTipsPlan == null) {
                     drawMainTopTips(KlineIndicatorTopTipsSelection.Cross(resolvedCrosshair))
                 }
+                val crossTooltipPresentation = resolveCachedCrossTooltipPresentation(
+                    crosshair = resolvedCrosshair,
+                    state = state,
+                    plotRect = plotRect,
+                    anchorRect = layout.mainPane.outerRect,
+                    config = renderConfig.crosshair,
+                    style = appliedStyle,
+                    densityScale = densityScale,
+                    timeLabelFormatter = appliedTimeLabelFormatter,
+                    provider = crossTooltipProvider,
+                    stableContentWidthPx = crossTooltipStableContentWidthPx,
+                )
                 val crossResult = drawCrosshair(
                     crosshair = resolvedCrosshair,
                     state = state,
                     plotRect = plotRect,
-                    tooltipAnchorRect = layout.mainPane.outerRect,
                     verticalRect = layout.chartRect,
                     crosshairRightPx = layout.mainPane.plotRect.right,
                     values = range,
                     style = appliedStyle,
                     config = renderConfig.crosshair,
                     textMeasurer = textMeasurer,
-                    crossTooltipProvider = crossTooltipProvider,
-                    stableTooltipContentWidthPx = crossTooltipStableContentWidthPx,
-                    timeLabelFormatter = appliedTimeLabelFormatter,
+                    tooltipPresentation = crossTooltipPresentation,
                 )
                 val candle = crossResult?.candle
                 layout.timePane?.takeIf { candle != null }?.let { timePane ->

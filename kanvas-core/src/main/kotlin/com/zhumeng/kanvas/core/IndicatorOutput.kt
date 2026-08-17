@@ -83,9 +83,15 @@ class IndicatorOutput private constructor(
 
     val isEmpty: Boolean get() = columnStorage.isEmpty()
 
+    /** Number of immutable output columns, available without copying their container. */
+    val columnCount: Int get() = columnStorage.size
+
     val columnNames: Set<String> get() = columnStorage.mapTo(linkedSetOf(), IndicatorColumn::name)
 
     fun column(name: String): IndicatorColumn? = columnStorage.firstOrNull { it.name == name }
+
+    /** Indexed immutable column access for allocation-sensitive render loops. */
+    fun columnAt(index: Int): IndicatorColumn = columnStorage[index]
 
     /** Returns an independent list; mutating it cannot affect this output. */
     fun columns(): List<IndicatorColumn> = columnStorage.toList()

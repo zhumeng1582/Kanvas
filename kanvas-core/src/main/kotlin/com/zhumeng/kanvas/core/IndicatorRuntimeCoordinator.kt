@@ -92,6 +92,7 @@ class IndicatorRuntimeCoordinator(
     )
 
     private val mutableState = MutableStateFlow<IndicatorRuntimeSnapshot?>(null)
+    private val mutableRenderState = MutableStateFlow<IndicatorRuntimeSnapshot?>(null)
     private val mutableError = MutableStateFlow<Throwable?>(null)
     private val refreshEpoch = MutableStateFlow(0L)
     private val resultLock = Any()
@@ -99,6 +100,14 @@ class IndicatorRuntimeCoordinator(
 
     /** The latest successfully calculated/rebased snapshot, or null before first success/after an error. */
     val state: StateFlow<IndicatorRuntimeSnapshot?> = mutableState.asStateFlow()
+
+    /**
+     * Snapshot stream for renderers. Open-candle rebases update [state] but do
+     * not emit here because their indicator definitions and output columns are
+     * unchanged. The older snapshot remains render-valid through
+     * [IndicatorRuntimeSnapshot.matches].
+     */
+    val renderState: StateFlow<IndicatorRuntimeSnapshot?> = mutableRenderState.asStateFlow()
 
     /** Latest calculation failure, cleared when a new calculation begins or succeeds. */
     val error: StateFlow<Throwable?> = mutableError.asStateFlow()
@@ -170,6 +179,7 @@ class IndicatorRuntimeCoordinator(
                         )
                         synchronized(resultLock) {
                             previousResult = rebased
+                            if (mutableRenderState.value == null) mutableRenderState.value = rebased
                             mutableState.value = rebased
                         }
                         return@collectLatest
@@ -191,11 +201,13 @@ class IndicatorRuntimeCoordinator(
 
                     synchronized(resultLock) {
                         previousResult = calculated
+                        mutableRenderState.value = calculated
                         mutableState.value = calculated
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
+                    mutableRenderState.value = null
                     mutableState.value = null
                     mutableError.value = error
                     try {
@@ -249,6 +261,7 @@ class IndicatorRuntimeCoordinator(
         synchronized(resultLock) {
             previousResult = snapshot
             mutableError.value = null
+            mutableRenderState.value = snapshot
             mutableState.value = snapshot
         }
         return true

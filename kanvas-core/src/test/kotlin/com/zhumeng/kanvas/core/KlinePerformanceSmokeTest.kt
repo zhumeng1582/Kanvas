@@ -119,7 +119,10 @@ class KlinePerformanceSmokeTest {
             Macd(),
             Kdj(),
             Rsi(),
+            RelativeStrengthIndexes(listOf(7, 14, 28)),
             Volume,
+            OnBalanceVolumeWithAverages(maPeriod = 7, emaPeriod = 25),
+            StochasticRsi(),
         ).mapIndexed { index, calculator ->
             IndicatorDefinition(
                 key = IndicatorKey.computed("realtime_$index"),

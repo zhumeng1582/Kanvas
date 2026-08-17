@@ -74,6 +74,24 @@ class DrawingControllerTest {
     }
 
     @Test
+    fun `drag mutation publishes overlay and pointer together`() {
+        val controller = DrawingController()
+        controller.switchSymbol("BTC-USDT")
+        controller.prepare(DrawingTypeDescriptor.TwoPointLine)
+        controller.confirmPoint(DrawingPoint(5L, 10.0))
+        controller.confirmPoint(DrawingPoint(3L, 10.0))
+        val pointer = Offset(42f, 24f)
+
+        assertTrue(controller.moveSelectedBy(1L, 2.0, pointer))
+
+        assertEquals(pointer, controller.snapshot.pointer)
+        assertEquals(
+            listOf(DrawingPoint(6L, 12.0), DrawingPoint(4L, 12.0)),
+            controller.snapshot.overlays.single().points,
+        )
+    }
+
+    @Test
     fun `weak and strong magnet follow candle OHLC distance`() {
         val controller = DrawingController()
         controller.switchSymbol("BTC-USDT")

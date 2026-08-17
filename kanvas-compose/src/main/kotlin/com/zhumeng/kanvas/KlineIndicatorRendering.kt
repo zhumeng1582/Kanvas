@@ -8,6 +8,7 @@ package com.zhumeng.kanvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.sp
@@ -389,7 +390,7 @@ object KlineVolumeIndicatorRenderer : KlineIndicatorRenderer {
             // calculation finishes. Keep the Volume renderer selected during
             // that pending interval, but remain strict once columns exist so
             // a multi-column Volume-derived output falls through to lines.
-            (output == null || output.columns().singleOrNull()?.name == Volume.ColumnName)
+            (output == null || (output.columnCount == 1 && output.columnAt(0).name == Volume.ColumnName))
 
     override fun draw(scope: DrawScope, context: KlineIndicatorDrawContext) {
         val column = context.output?.column(Volume.ColumnName) ?: return
@@ -406,6 +407,11 @@ object KlineVolumeIndicatorRenderer : KlineIndicatorRenderer {
 }
 
 /** Default renderer for non-volume computed columns, including Android MA examples. */
+private data class KlineComputedTopTipsPrepared(
+    override val claimedHeightPx: Float,
+    val textLayouts: List<TextLayoutResult>,
+) : KlineIndicatorTopTipsPrepared
+
 object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicatorTopTipsRenderer {
     override fun supports(definition: IndicatorDefinition, output: IndicatorOutput?): Boolean =
         // Keep an attached computed renderer and its pane geometry while a
@@ -419,19 +425,16 @@ object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicat
     }
 
     override fun draw(scope: DrawScope, context: KlineIndicatorDrawContext) {
+        draw(scope = scope, context = context, preparedLines = null)
+    }
+
+    internal fun draw(
+        scope: DrawScope,
+        context: KlineIndicatorDrawContext,
+        preparedLines: List<KlinePreparedIndicatorLine>?,
+    ) {
         val output = context.output ?: return
-        val configuredStyles = when (val config = context.definition.configuration) {
-            is KlineMovingAverageIndicatorConfig -> config.lineStyles
-            is KlineSinglePeriodIndicatorConfig -> config.lineStyles
-            is KlineTriplePeriodIndicatorConfig -> config.lineStyles
-            is KlineStyledIndicatorConfig -> config.lineStyles
-            is KlineSarIndicatorConfig -> config.lineStyles
-            is KlineSuperTrendIndicatorConfig -> config.lineStyles
-            is KlineRsiIndicatorConfig -> config.lineStyles
-            is KlineObvIndicatorConfig -> config.lineStyles
-            is KlineStochasticRsiIndicatorConfig -> config.lineStyles
-            else -> emptyList()
-        }
+        val configuredStyles = context.definition.configuredLineStyles()
         if (context.definition.calculator is Macd) {
             val histogram = output.column("histogram")
             val histogramVisible = configuredStyles.getOrNull(2)?.visible != false
@@ -489,21 +492,21 @@ object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicat
                 )
             }
         }
-        val excludedColumns = buildSet {
-            if (context.definition.calculator is Macd) add("histogram")
-            if (context.definition.calculator is SuperTrend) add(SuperTrend.ColumnName)
+        if (preparedLines != null) {
+            scope.drawPreparedIndicatorLines(preparedLines)
+        } else {
+            scope.drawIndicatorLines(
+                outputs = listOf(output),
+                range = context.paintRange,
+                plotRect = context.pane.plotRect,
+                values = context.valueRange,
+                viewport = context.viewport,
+                style = context.style,
+                colorOffset = context.colorIndex,
+                lineStyles = configuredStyles,
+                excludedColumns = context.definition.excludedLineColumns(),
+            )
         }
-        scope.drawIndicatorLines(
-            outputs = listOf(output),
-            range = context.paintRange,
-            plotRect = context.pane.plotRect,
-            values = context.valueRange,
-            viewport = context.viewport,
-            style = context.style,
-            colorOffset = context.colorIndex,
-            lineStyles = configuredStyles,
-            excludedColumns = excludedColumns,
-        )
     }
 
     override fun prepareTopTips(context: KlineIndicatorTopTipsPrepareContext): KlineIndicatorTopTipsPrepared? {
@@ -513,57 +516,81 @@ object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicat
             is KlineIndicatorTopTipsSelection.Cross -> selection.crosshair.candleIndex ?: return null
         }
         if (index !in 0 until output.seriesSize) return null
-        val values = output.columns().mapNotNull { column -> column[index].takeIf(Double::isFinite) }
-       if (values.isEmpty()) return null
-       return object : KlineIndicatorTopTipsPrepared { override val claimedHeightPx: Float = (16f + 4f) * context.indicator.densityScale }
-   }
+        var hasValue = false
+        val configuredStyles = context.indicator.definition.configuredLineStyles()
+        val fallbackColors = context.indicator.style.indicatorLines.ifEmpty { listOf(context.indicator.style.line) }
+        val textLayouts = buildList {
+            for (columnIndex in 0 until output.columnCount) {
+                val column = output.columnAt(columnIndex)
+                val value = column[index]
+                if (value.isFinite()) hasValue = true
+                if (
+                    context.indicator.definition.calculator is SuperTrend &&
+                    column.name == SuperTrend.ColumnName
+                ) {
+                    continue
+                }
+                if (configuredStyles.getOrNull(columnIndex)?.visible == false || !value.isFinite()) continue
+                val displayName = column.displayName()
+                val color = configuredStyles.getOrNull(columnIndex)?.color
+                    ?: fallbackColors[(context.indicator.colorIndex + columnIndex) % fallbackColors.size]
+                add(
+                    context.textMeasurer.measure(
+                        "$displayName: ${"%.2f".format(java.util.Locale.US, value)}",
+                        TextStyle(color = color, fontSize = 10.sp),
+                    ),
+                )
+            }
+        }
+        if (!hasValue) return null
+        return KlineComputedTopTipsPrepared(
+            claimedHeightPx = (16f + 4f) * context.indicator.densityScale,
+            textLayouts = textLayouts,
+        )
+    }
 
     override fun drawTopTips(scope: DrawScope, context: KlineIndicatorTopTipsDrawContext) {
-        val output = context.indicator.output ?: return
-        val index = when (val selection = context.selection) {
-            is KlineIndicatorTopTipsSelection.Latest -> 0
-            is KlineIndicatorTopTipsSelection.Cross -> selection.crosshair.candleIndex ?: return
+        val prepared = context.placement.prepared as? KlineComputedTopTipsPrepared ?: return
+        val tipPadding = 4f * context.indicator.densityScale
+        var x = context.placement.geometry.tipsRect.left + tipPadding
+        val y = context.placement.geometry.tipsRect.top + tipPadding
+        prepared.textLayouts.forEach { layout ->
+            scope.drawText(layout, topLeft = androidx.compose.ui.geometry.Offset(x, y))
+            x += layout.size.width + 8f * context.indicator.densityScale
         }
-        val parts = output.columns().mapIndexedNotNull { columnIndex, column ->
-            if (context.indicator.definition.calculator is SuperTrend && column.name == SuperTrend.ColumnName) {
-                return@mapIndexedNotNull null
-            }
-            val configuredStyles = when (val config = context.indicator.definition.configuration) {
-                is KlineMovingAverageIndicatorConfig -> config.lineStyles
-                is KlineSinglePeriodIndicatorConfig -> config.lineStyles
-                is KlineTriplePeriodIndicatorConfig -> config.lineStyles
-                is KlineStyledIndicatorConfig -> config.lineStyles
-                is KlineSarIndicatorConfig -> config.lineStyles
-                is KlineSuperTrendIndicatorConfig -> config.lineStyles
-                is KlineRsiIndicatorConfig -> config.lineStyles
-                is KlineObvIndicatorConfig -> config.lineStyles
-                is KlineStochasticRsiIndicatorConfig -> config.lineStyles
-                else -> emptyList()
-            }
-            if (configuredStyles.getOrNull(columnIndex)?.visible == false) return@mapIndexedNotNull null
-            val value = column[index].takeIf(Double::isFinite) ?: return@mapIndexedNotNull null
-            val displayName = when {
-                column.name.startsWith("ema_") -> "EMA(${column.name.removePrefix("ema_")})"
-                column.name.startsWith("ma_") -> "MA(${column.name.removePrefix("ma_")})"
-                column.name == "boll_mid" -> "MID"
-                column.name == "boll_upper" -> "UPPER"
-                column.name == "boll_lower" -> "LOWER"
-                else -> column.name.uppercase()
-            }
-            val fallbackColors = context.indicator.style.indicatorLines.ifEmpty { listOf(context.indicator.style.line) }
-            val color = configuredStyles.getOrNull(columnIndex)?.color
-                ?: fallbackColors[(context.indicator.colorIndex + columnIndex) % fallbackColors.size]
-            "$displayName: ${"%.2f".format(java.util.Locale.US, value)}" to color
-        }
-       val tipPadding = 4f * context.indicator.densityScale
-       var x = context.placement.geometry.tipsRect.left + tipPadding
-       val y = context.placement.geometry.tipsRect.top + tipPadding
-       parts.forEach { (text, color) ->
-           val layout = context.textMeasurer.measure(text, TextStyle(color = color, fontSize = 10.sp))
-           scope.drawText(layout, topLeft = androidx.compose.ui.geometry.Offset(x, y))
-           x += layout.size.width + 8f * context.indicator.densityScale
-       }
-   }
+    }
+}
+
+internal fun IndicatorDefinition.configuredLineStyles(): List<KlineIndicatorLineStyle> =
+    when (val config = configuration) {
+        is KlineMovingAverageIndicatorConfig -> config.lineStyles
+        is KlineSinglePeriodIndicatorConfig -> config.lineStyles
+        is KlineTriplePeriodIndicatorConfig -> config.lineStyles
+        is KlineStyledIndicatorConfig -> config.lineStyles
+        is KlineSarIndicatorConfig -> config.lineStyles
+        is KlineSuperTrendIndicatorConfig -> config.lineStyles
+        is KlineRsiIndicatorConfig -> config.lineStyles
+        is KlineObvIndicatorConfig -> config.lineStyles
+        is KlineStochasticRsiIndicatorConfig -> config.lineStyles
+        else -> emptyList()
+    }
+
+private val MacdExcludedLineColumns = setOf("histogram")
+private val SuperTrendExcludedLineColumns = setOf(SuperTrend.ColumnName)
+
+internal fun IndicatorDefinition.excludedLineColumns(): Set<String> = when (calculator) {
+    is Macd -> MacdExcludedLineColumns
+    is SuperTrend -> SuperTrendExcludedLineColumns
+    else -> emptySet()
+}
+
+private fun com.zhumeng.kanvas.core.IndicatorColumn.displayName(): String = when {
+    name.startsWith("ema_") -> "EMA(${name.removePrefix("ema_")})"
+    name.startsWith("ma_") -> "MA(${name.removePrefix("ma_")})"
+    name == "boll_mid" -> "MID"
+    name == "boll_upper" -> "UPPER"
+    name == "boll_lower" -> "LOWER"
+    else -> name.uppercase()
 }
 
 /** Point renderer for Parabolic SAR; scoped by the native plugin binding. */
@@ -720,7 +747,7 @@ internal fun IndicatorRuntimeSnapshot?.resolveIndicatorPanePlan(
         var nextColor = 0
         return items.map { ordered ->
             ordered.item.copy(colorIndex = nextColor).also { item ->
-                nextColor += maxOf(1, item.output?.columns()?.size ?: 0)
+                nextColor += maxOf(1, item.output?.columnCount ?: 0)
             }
         }
     }

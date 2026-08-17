@@ -23,8 +23,10 @@ class IndicatorIncrementalCalculationTest {
             AverageValueLine,
             SuperTrend(),
             OnBalanceVolume,
+            OnBalanceVolumeWithAverages(maPeriod = 7, emaPeriod = 25),
             WilliamsR(),
             StochasticRsi(),
+            RelativeStrengthIndexes(listOf(7, 14, 28)),
         )
         val original = series(200)
         val latest = checkNotNull(original.latest)

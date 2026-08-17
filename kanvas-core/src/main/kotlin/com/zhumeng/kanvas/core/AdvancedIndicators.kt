@@ -243,6 +243,41 @@ class OnBalanceVolumeWithAverages(
     }
 
     override fun calculate(input: IndicatorCalculationInput): IndicatorOutput {
+        if (input.canPatchLatest() && input.series.size >= 2) {
+            val previous = input.previousOutput
+            val previousObv = previous?.column(OnBalanceVolume.ColumnName)
+            if (previous != null && previousObv != null) {
+                val obvValue = previousObv.safe(1) + signedVolume(input.series[0], input.series[1])
+                val patchedObv = previousObv.withLatestValue(obvValue)
+                val columns = mutableListOf<IndicatorColumn>(patchedObv)
+                maPeriod?.let { period ->
+                    val previousAverage = previous.column("obv_ma_$period")
+                    if (previousAverage == null) return@let
+                    columns += previousAverage.withLatestValue(
+                        averageLatest(patchedObv, period),
+                    )
+                }
+                emaPeriod?.let { period ->
+                    val previousAverage = previous.column("obv_ema_$period")
+                    if (previousAverage == null) return@let
+                    val value = when {
+                        input.series.size < period -> Double.NaN
+                        previousAverage.safe(1).isFinite() -> {
+                            val alpha = 2.0 / (period + 1.0)
+                            obvValue * alpha + previousAverage[1] * (1.0 - alpha)
+                        }
+                        else -> averageLatest(patchedObv, period)
+                    }
+                    columns += previousAverage.withLatestValue(value)
+                }
+                val expectedColumnCount = 1 +
+                    (if (maPeriod == null) 0 else 1) +
+                    (if (emaPeriod == null) 0 else 1)
+                if (columns.size == expectedColumnCount) {
+                    return IndicatorOutput.of(input.definition.key, input.series.size, columns)
+                }
+            }
+        }
         val obvValues = calculateObv(input.series)
         val columns = mutableListOf(IndicatorColumn.ofOwned(OnBalanceVolume.ColumnName, obvValues))
         maPeriod?.let { columns += IndicatorColumn.ofOwned("obv_ma_$it", simpleAverage(obvValues, it)) }
@@ -287,8 +322,37 @@ class StochasticRsi(
     }
 
     override fun calculate(input: IndicatorCalculationInput): IndicatorOutput {
-        val rsiValues = rollingRsi(input.series, rsiPeriod)
-        val rsi = IndicatorColumn.ofOwned("_stoch_rsi", rsiValues)
+        val previousState = input.previousOutput?.calculationState as? StochRsiState
+        if (input.canPatchLatest() && previousState != null && input.series.size > rsiPeriod) {
+            val previousK = input.previousOutput.column(KColumn)
+            val previousD = input.previousOutput.column(DColumn)
+            val delta = input.series[0].close - input.series[1].close
+            val priorGain = previousState.averageGain.safe(1)
+            val priorLoss = previousState.averageLoss.safe(1)
+            if (previousK != null && previousD != null && delta.isFinite() && priorGain.isFinite() && priorLoss.isFinite()) {
+                val averageGain = (priorGain * (rsiPeriod - 1) + max(delta, 0.0)) / rsiPeriod
+                val averageLoss = (priorLoss * (rsiPeriod - 1) + max(-delta, 0.0)) / rsiPeriod
+                val rsi = previousState.rsi.withLatestValue(rsiFromAverages(averageGain, averageLoss))
+                val stochastic = previousState.stochastic.withLatestValue(
+                    stochasticLatest(rsi, stochasticPeriod),
+                )
+                val k = previousK.withLatestValue(averageLatest(stochastic, kPeriod).coerceFinitePercent())
+                val d = previousD.withLatestValue(averageLatest(k, dPeriod).coerceFinitePercent())
+                return IndicatorOutput.ofCalculated(
+                    input.definition.key,
+                    input.series.size,
+                    listOf(k, d),
+                    StochRsiState(
+                        rsi = rsi,
+                        stochastic = stochastic,
+                        averageGain = previousState.averageGain.withLatestValue(averageGain),
+                        averageLoss = previousState.averageLoss.withLatestValue(averageLoss),
+                    ),
+                )
+            }
+        }
+        val rsiResult = calculateWilderRsi(input.series, rsiPeriod)
+        val rsi = IndicatorColumn.ofOwned("_stoch_rsi", rsiResult.values)
         val stochasticValues = rollingStochastic(rsi, stochasticPeriod)
         val stochastic = IndicatorColumn.ofOwned("_stochastic", stochasticValues)
         val kValues = rollingAverage(stochastic, kPeriod)
@@ -298,7 +362,12 @@ class StochasticRsi(
             input.definition.key,
             input.series.size,
             listOf(k, IndicatorColumn.ofOwned(DColumn, dValues)),
-            StochRsiState(rsi, stochastic),
+            StochRsiState(
+                rsi = rsi,
+                stochastic = stochastic,
+                averageGain = IndicatorColumn.ofOwned("_stoch_rsi_gain", rsiResult.averageGain),
+                averageLoss = IndicatorColumn.ofOwned("_stoch_rsi_loss", rsiResult.averageLoss),
+            ),
         )
     }
 
@@ -434,7 +503,12 @@ private fun superTrendAt(
     return SuperTrendPoint(if (isUp) lower else upper, atr, upper, lower, isUp)
 }
 
-private data class StochRsiState(val rsi: IndicatorColumn, val stochastic: IndicatorColumn)
+private data class StochRsiState(
+    val rsi: IndicatorColumn,
+    val stochastic: IndicatorColumn,
+    val averageGain: IndicatorColumn,
+    val averageLoss: IndicatorColumn,
+)
 
 private fun trueRange(series: KlineSeries, index: Int): Double {
     val candle = series[index]
@@ -491,6 +565,17 @@ private fun exponentialAverage(values: DoubleArray, period: Int): DoubleArray {
     return result
 }
 
+private fun averageLatest(column: IndicatorColumn, period: Int): Double {
+    if (column.size < period) return Double.NaN
+    var sum = 0.0
+    for (index in 0 until period) {
+        val value = column[index]
+        if (!value.isFinite()) return Double.NaN
+        sum += value
+    }
+    return sum / period
+}
+
 private fun williamsAt(series: KlineSeries, start: Int, period: Int): Double {
     if (start < 0 || start + period > series.size) return Double.NaN
     var high = Double.NEGATIVE_INFINITY
@@ -541,6 +626,29 @@ private fun rollingWilliams(series: KlineSeries, period: Int): DoubleArray {
 private fun rollingRsi(series: KlineSeries, period: Int): DoubleArray {
     return calculateWilderRsi(series, period).values
 }
+
+private fun rsiFromAverages(averageGain: Double, averageLoss: Double): Double = when {
+    averageGain == 0.0 && averageLoss == 0.0 -> 50.0
+    averageLoss == 0.0 -> 100.0
+    else -> 100.0 - 100.0 / (1.0 + averageGain / averageLoss)
+}
+
+private fun stochasticLatest(column: IndicatorColumn, period: Int): Double {
+    if (column.size < period) return Double.NaN
+    var minimum = Double.POSITIVE_INFINITY
+    var maximum = Double.NEGATIVE_INFINITY
+    for (index in 0 until period) {
+        val value = column[index]
+        if (!value.isFinite()) return Double.NaN
+        minimum = min(minimum, value)
+        maximum = max(maximum, value)
+    }
+    val span = maximum - minimum
+    return if (span == 0.0) 0.0 else (column[0] - minimum) / span * 100.0
+}
+
+private fun Double.coerceFinitePercent(): Double =
+    if (isFinite()) coerceIn(0.0, 100.0) else this
 
 private fun rollingStochastic(column: IndicatorColumn, period: Int): DoubleArray {
     val values = DoubleArray(column.size) { Double.NaN }

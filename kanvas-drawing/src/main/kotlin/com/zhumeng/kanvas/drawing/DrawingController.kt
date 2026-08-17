@@ -129,12 +129,19 @@ class DrawingController(
     }
 
     fun moveSelectedPoint(point: DrawingPoint): Boolean {
+        return moveSelectedPoint(point, snapshot.pointer)
+    }
+
+    /** Moves one handle and publishes its pointer position in the same snapshot. */
+    fun moveSelectedPoint(point: DrawingPoint, pointer: Offset?): Boolean {
         val editing = snapshot.state as? DrawingState.Editing ?: return false
         val index = editing.selectedPointIndex ?: return false
-        val overlay = snapshot.overlays.first { it.id == editing.overlayId }
+        val overlayIndex = snapshot.overlays.indexOfFirst { it.id == editing.overlayId }
+        if (overlayIndex < 0) return false
+        val overlay = snapshot.overlays[overlayIndex]
         if (overlay.locked) return false
         val points = overlay.points.toMutableList().apply { this[index] = point }
-        replace(overlay.copy(points = points), editing)
+        replace(overlay.copy(points = points), editing, pointer = pointer, currentIndex = overlayIndex)
         return true
     }
 
@@ -156,8 +163,19 @@ class DrawingController(
     }
 
     fun moveSelectedBy(deltaTimestampMillis: Long, deltaValue: Double): Boolean {
+        return moveSelectedBy(deltaTimestampMillis, deltaValue, snapshot.pointer)
+    }
+
+    /** Moves the selected overlay and pointer atomically for one drag event. */
+    fun moveSelectedBy(
+        deltaTimestampMillis: Long,
+        deltaValue: Double,
+        pointer: Offset?,
+    ): Boolean {
         val editing = snapshot.state as? DrawingState.Editing ?: return false
-        val overlay = snapshot.overlays.first { it.id == editing.overlayId }
+        val overlayIndex = snapshot.overlays.indexOfFirst { it.id == editing.overlayId }
+        if (overlayIndex < 0) return false
+        val overlay = snapshot.overlays[overlayIndex]
         if (overlay.locked || !overlay.isComplete) return false
         val points = overlay.points.map { point ->
             point?.copy(
@@ -165,7 +183,7 @@ class DrawingController(
                 value = point.value + deltaValue,
             )
         }
-        replace(overlay.copy(points = points), editing)
+        replace(overlay.copy(points = points), editing, pointer = pointer, currentIndex = overlayIndex)
         return true
     }
 
@@ -305,17 +323,27 @@ class DrawingController(
         if (snapshot.magnetMode == DrawingMagnetMode.Normal) return raw
         val index = space.series.indexAtOrBefore(raw.timestampMillis) ?: return raw
         val candle = candles.getOrNull(index) ?: return raw
-        val candidates = listOf(candle.open, candle.high, candle.low, candle.close)
-            .map { DrawingPoint(candle.timestampMillis, it) }
-        val nearest = candidates.minBy { candidate ->
-            space.project(candidate)?.let { (it - position).getDistance() } ?: Float.MAX_VALUE
+        val candleX = space.viewport.xForIndex(space.plotRect.right, index.toDouble())
+        var nearestValue = candle.open
+        var nearestDistance = Float.MAX_VALUE
+        repeat(4) { candidateIndex ->
+            val value = when (candidateIndex) {
+                0 -> candle.open
+                1 -> candle.high
+                2 -> candle.low
+                else -> candle.close
+            }
+            val distance = (Offset(candleX, space.valueToY(value)) - position).getDistance()
+            if (distance < nearestDistance) {
+                nearestValue = value
+                nearestDistance = distance
+            }
         }
+        val nearest = DrawingPoint(candle.timestampMillis, nearestValue)
         return when (snapshot.magnetMode) {
             DrawingMagnetMode.Normal -> raw
             DrawingMagnetMode.Strong -> nearest
-            DrawingMagnetMode.Weak -> nearest.takeIf {
-                space.project(it)?.let { projected -> (projected - position).getDistance() <= minDistancePx } == true
-            } ?: raw
+            DrawingMagnetMode.Weak -> nearest.takeIf { nearestDistance <= minDistancePx } ?: raw
         }
     }
 
@@ -329,8 +357,8 @@ class DrawingController(
         overlay: DrawingOverlay,
         state: DrawingState,
         pointer: Offset? = snapshot.pointer,
+        currentIndex: Int = snapshot.overlays.indexOfFirst { it.id == overlay.id },
     ) {
-        val currentIndex = snapshot.overlays.indexOfFirst { it.id == overlay.id }
         if (currentIndex < 0) return
         val previous = snapshot.overlays[currentIndex]
         val overlays = snapshot.overlays.toMutableList().apply {

@@ -88,6 +88,7 @@ class KanvasIndicatorState internal constructor(
 ) {
     val state: StateFlow<IndicatorRegistrySnapshot> get() = chartRuntime.indicatorRegistry.state
     val calculationState: StateFlow<IndicatorRuntimeSnapshot?> get() = coordinator.state
+    internal val renderCalculationState: StateFlow<IndicatorRuntimeSnapshot?> get() = coordinator.renderState
 
     fun snapshot(): IndicatorRegistrySnapshot = chartRuntime.indicatorRegistry.snapshot()
 
@@ -357,7 +358,7 @@ fun KanvasChart(
 ) {
     val chart by state.state.collectAsState()
     val indicatorRegistry by state.indicators.state.collectAsState()
-    val indicatorOutput by state.indicators.calculationState.collectAsState()
+    val indicatorOutput by state.indicators.renderCalculationState.collectAsState()
     KanvasChart(
         state = chart,
         onViewportChange = state::updateViewport,

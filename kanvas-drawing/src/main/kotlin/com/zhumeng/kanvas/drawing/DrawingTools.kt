@@ -33,7 +33,10 @@ interface DrawingTool {
 }
 
 private fun DrawingOverlay.projectedPoints(space: DrawingCoordinateSpace, pointer: Offset?): List<Offset> =
-    points.mapNotNull { it?.let(space::project) } + listOfNotNull(pointer)
+    buildList(points.size + if (pointer == null) 0 else 1) {
+        points.forEach { point -> point?.let(space::project)?.let(::add) }
+        pointer?.let(::add)
+    }
 
 private fun DrawingLineStyle.stroke(densityScale: Float): Stroke = Stroke(
     width = strokeWidthPx * densityScale,
@@ -216,9 +219,10 @@ class FibonacciRetracementDrawingTool : TwoPointDrawingTool() {
         if (points.size >= 2) {
             val left = minOf(points[0].x, points[1].x)
             val right = maxOf(points[0].x, points[1].x)
+            val stroke = overlay.line.stroke(densityScale)
             levels.forEach { level ->
                 val y = points[0].y + (points[1].y - points[0].y) * level
-                drawLine(overlay.line.color.copy(alpha = if (level == 0f || level == 1f) 1f else 0.72f), Offset(left, y), Offset(right, y), strokeWidth = overlay.line.strokeWidthPx * densityScale, pathEffect = overlay.line.stroke(densityScale).pathEffect)
+                drawLine(overlay.line.color.copy(alpha = if (level == 0f || level == 1f) 1f else 0.72f), Offset(left, y), Offset(right, y), strokeWidth = stroke.width, pathEffect = stroke.pathEffect)
             }
         }
         handles(overlay, points, selected, config, densityScale)

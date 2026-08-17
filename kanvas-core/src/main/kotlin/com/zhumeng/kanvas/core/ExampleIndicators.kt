@@ -338,14 +338,66 @@ class RelativeStrengthIndexes(periods: Iterable<Int>) : IndicatorCalculator {
 
     val periods: List<Int> get() = periodStorage.toList()
 
-    override fun calculate(input: IndicatorCalculationInput): IndicatorOutput = IndicatorOutput.of(
-        input.definition.key,
-        input.series.size,
-        periodStorage.map { period ->
-            IndicatorColumn.ofOwned("rsi_$period", calculateWilderRsi(input.series, period).values)
-        },
-    )
+    override fun calculate(input: IndicatorCalculationInput): IndicatorOutput {
+        val previousState = input.previousOutput?.calculationState as? RelativeStrengthIndexesState
+        if (
+            input.canUpdateLatest() &&
+            previousState != null &&
+            previousState.averageGains.size == periodStorage.size &&
+            previousState.averageLosses.size == periodStorage.size &&
+            input.series.size > periodStorage.max()
+        ) {
+            val delta = input.series[0].close - input.series[1].close
+            val columns = ArrayList<IndicatorColumn>(periodStorage.size)
+            val gains = ArrayList<IndicatorColumn>(periodStorage.size)
+            val losses = ArrayList<IndicatorColumn>(periodStorage.size)
+            var canPatch = delta.isFinite()
+            periodStorage.forEachIndexed { index, period ->
+                val priorGain = previousState.averageGains[index].getOrNull(1)
+                val priorLoss = previousState.averageLosses[index].getOrNull(1)
+                val previousColumn = input.previousOutput.column("rsi_$period")
+                if (!canPatch || !priorGain.isFinite() || !priorLoss.isFinite() || previousColumn == null) {
+                    canPatch = false
+                    return@forEachIndexed
+                }
+                val averageGain = (priorGain * (period - 1) + maxOf(delta, 0.0)) / period
+                val averageLoss = (priorLoss * (period - 1) + maxOf(-delta, 0.0)) / period
+                columns += previousColumn.withLatestValue(rsiValue(averageGain, averageLoss))
+                gains += previousState.averageGains[index].withLatestValue(averageGain)
+                losses += previousState.averageLosses[index].withLatestValue(averageLoss)
+            }
+            if (canPatch && columns.size == periodStorage.size) {
+                return IndicatorOutput.ofCalculated(
+                    key = input.definition.key,
+                    seriesSize = input.series.size,
+                    columns = columns,
+                    calculationState = RelativeStrengthIndexesState(gains, losses),
+                )
+            }
+        }
+        val results = periodStorage.map { period -> calculateWilderRsi(input.series, period) }
+        return IndicatorOutput.ofCalculated(
+            key = input.definition.key,
+            seriesSize = input.series.size,
+            columns = results.mapIndexed { index, result ->
+                IndicatorColumn.ofOwned("rsi_${periodStorage[index]}", result.values)
+            },
+            calculationState = RelativeStrengthIndexesState(
+                averageGains = results.mapIndexed { index, result ->
+                    IndicatorColumn.ofOwned("_rsi_${periodStorage[index]}_gain", result.averageGain)
+                },
+                averageLosses = results.mapIndexed { index, result ->
+                    IndicatorColumn.ofOwned("_rsi_${periodStorage[index]}_loss", result.averageLoss)
+                },
+            ),
+        )
+    }
 }
+
+private data class RelativeStrengthIndexesState(
+    val averageGains: List<IndicatorColumn>,
+    val averageLosses: List<IndicatorColumn>,
+)
 
 private data class RsiIncrementalState(
     val averageGain: IndicatorColumn,

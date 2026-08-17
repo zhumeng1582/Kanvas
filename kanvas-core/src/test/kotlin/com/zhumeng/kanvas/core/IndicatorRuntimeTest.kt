@@ -221,6 +221,8 @@ class IndicatorRuntimeTest {
         inspectedColumns.clear()
 
         assertEquals(listOf(3.0, 2.0, 1.0), column.asList())
+        assertEquals(1, output.columnCount)
+        assertTrue(output.columnAt(0) === column)
         assertEquals(listOf("test"), output.columnNames.toList())
         assertEquals(2.0, output.column("test")!![1])
     }
