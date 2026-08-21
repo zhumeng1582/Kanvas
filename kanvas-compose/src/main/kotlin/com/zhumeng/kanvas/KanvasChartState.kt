@@ -6,10 +6,12 @@
 package com.zhumeng.kanvas
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -26,6 +28,7 @@ import com.zhumeng.kanvas.core.IndicatorRuntimeSnapshot
 import com.zhumeng.kanvas.core.KlineCandle
 import com.zhumeng.kanvas.core.KlineComputeMode
 import com.zhumeng.kanvas.core.KlineController
+import com.zhumeng.kanvas.core.KlineDataDisposition
 import com.zhumeng.kanvas.core.KlineDataResult
 import com.zhumeng.kanvas.core.KlineEvent
 import com.zhumeng.kanvas.core.KlineIndicatorRefreshPolicy
@@ -39,6 +42,7 @@ import com.zhumeng.kanvas.drawing.DrawingMagnifierConfig
 import com.zhumeng.kanvas.drawing.DrawingRenderConfig
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 
 /** Input ordering accepted by the high-level data APIs. */
 enum class KanvasCandleOrder {
@@ -76,6 +80,32 @@ data class KanvasChartCallbacks(
     val onUnsupportedIndicators: (List<IndicatorDefinition>) -> Unit = {},
     val onDoubleTap: () -> Unit = {},
 )
+
+/**
+ * Separates gesture-rate viewport snapshots from composition-affecting chart state.
+ * The two State objects retain one stable identity for the lifetime of a chart facade.
+ */
+internal class KanvasLiveChartState(initial: KlineUiState) {
+    val drawState = mutableStateOf(initial)
+    val compositionState = mutableStateOf(initial)
+
+    fun update(next: KlineUiState) {
+        drawState.value = next
+        val current = compositionState.value
+        if (!current.hasSameCompositionInputs(next)) compositionState.value = next
+    }
+
+    private fun KlineUiState.hasSameCompositionInputs(other: KlineUiState): Boolean =
+        spec == other.spec &&
+            series === other.series &&
+            viewportConstraints == other.viewportConstraints &&
+            loadingState == other.loadingState &&
+            loadMoreRequestId == other.loadMoreRequestId &&
+            loadMoreError == other.loadMoreError &&
+            canLoadMoreOlder == other.canLoadMoreOlder &&
+            interactionEpoch == other.interactionEpoch &&
+            revision == other.revision
+}
 
 /**
  * Type-safe facade over indicator selection, parameter updates, and sub-pane order.
@@ -231,11 +261,20 @@ class KanvasChartState internal constructor(
             }
             // A realtime tick may land while calculation is off-thread. Retry
             // against that latest series so the page and output stay atomic.
-            if (current.revision != before.revision || current.series.candles != before.series.candles) continue
+            if (current.revision != before.revision || current.series !== before.series) continue
             if (!prepared.matches(indicators.snapshot())) continue
 
-            val result = controller.completeLoadMore(requestId, normalized, hasMoreOlder)
-            indicators.coordinator.publishPrepared(prepared)
+            val result = controller.completeLoadMorePrepared(
+                requestId = requestId,
+                sourceSeries = before.series,
+                preparedSeries = candidate.series,
+                hasMoreOlder = hasMoreOlder,
+            )
+            when (result.disposition) {
+                KlineDataDisposition.IgnoredStalePreparedData -> continue
+                KlineDataDisposition.Applied -> indicators.coordinator.publishPrepared(prepared)
+                else -> Unit
+            }
             return result
         }
     }
@@ -349,6 +388,7 @@ fun KanvasChart(
     config: KanvasChartConfig = state.defaultConfig,
     callbacks: KanvasChartCallbacks = KanvasChartCallbacks(),
     orderMarkers: List<KlineOrderMarker> = emptyList(),
+    mainChartRenderer: KlineMainChartRenderer? = null,
     crossTooltipProvider: KlineCrossTooltipProvider? = null,
     timeLabelFormatter: KlineTimeLabelFormatter? = null,
     mainBackgroundContent: (@Composable (KlineChartSlotContext) -> Unit)? = null,
@@ -356,58 +396,65 @@ fun KanvasChart(
     verticalZoomHitRect: Rect? = null,
     verticalZoomExitContent: (@Composable (onExit: () -> Unit) -> Unit)? = null,
 ) {
-    val chart by state.state.collectAsState()
+    val liveChartState = remember(state) { KanvasLiveChartState(state.state.value) }
+    androidx.compose.runtime.LaunchedEffect(state) {
+        state.state.collect(liveChartState::update)
+    }
+    val chart by liveChartState.compositionState
     val indicatorRegistry by state.indicators.state.collectAsState()
     val indicatorOutput by state.indicators.renderCalculationState.collectAsState()
-    KanvasChart(
-        state = chart,
-        onViewportChange = state::updateViewport,
-        modifier = modifier,
-        onViewportConstraintsChange = { constraints ->
-            // Keep physical layout details inside the facade.
-            val current = state.state.value
-            if (current.viewportConstraints != constraints) {
-                state.updateViewportConstraints(constraints)
-            }
-        },
-        onLayoutChange = callbacks.onLayoutChange,
-        onLoadMoreRequested = { showLoading ->
-            state.requestLoadMore(showLoading)
-            callbacks.onLoadMoreRequested(showLoading)
-        },
-        onMoveToInitialPosition = state::moveToLatest,
-        onCrosshairChange = callbacks.onCrosshairChange,
-        chartType = config.chartType,
-        candleZIndex = config.candleZIndex,
-        style = config.style,
-        renderConfig = config.render,
-        orderMarkers = orderMarkers,
-        orderMarkerConfig = config.orderMarkers,
-        indicatorSnapshot = indicatorOutput,
-        indicatorRegistrySnapshot = indicatorRegistry,
-        indicatorRendererRegistry = state.indicators.chartRuntime.rendererRegistry,
-        indicatorRendererLifecycleHost = state.indicators.chartRuntime.indicatorRendererLifecycleHost,
-        onUnsupportedIndicators = callbacks.onUnsupportedIndicators,
-        paneConfig = config.panes,
-        builtInIndicators = config.builtInIndicators,
-        timeAxisConfig = config.timeAxis,
-        timeLabelFormatter = timeLabelFormatter,
-        axisWidth = config.axisWidth,
-        timeAxisHeight = config.timeAxisHeight,
-        crossTooltipProvider = crossTooltipProvider,
-        mainBackgroundContent = mainBackgroundContent,
-        mainForegroundContent = mainForegroundContent,
-        drawingController = state.drawingController,
-        drawingConfig = config.drawing,
-        drawingMagnifierConfig = config.drawingMagnifier,
-        watermarkConfig = config.watermark,
-        verticalZoomHitRect = verticalZoomHitRect,
-        onDoubleTap = {
-            if (config.resetToLatestOnDoubleTap) state.moveToLatest()
-            callbacks.onDoubleTap()
-        },
-        verticalZoomExitContent = verticalZoomExitContent,
-    )
+    CompositionLocalProvider(LocalKanvasLiveChartState provides liveChartState.drawState) {
+        KanvasChart(
+            state = chart,
+            onViewportChange = state::updateViewport,
+            modifier = modifier,
+            onViewportConstraintsChange = { constraints ->
+                // Keep physical layout details inside the facade.
+                val current = state.state.value
+                if (current.viewportConstraints != constraints) {
+                    state.updateViewportConstraints(constraints)
+                }
+            },
+            onLayoutChange = callbacks.onLayoutChange,
+            onLoadMoreRequested = { showLoading ->
+                state.requestLoadMore(showLoading)
+                callbacks.onLoadMoreRequested(showLoading)
+            },
+            onMoveToInitialPosition = state::moveToLatest,
+            onCrosshairChange = callbacks.onCrosshairChange,
+            chartType = config.chartType,
+            mainChartRenderer = mainChartRenderer,
+            candleZIndex = config.candleZIndex,
+            style = config.style,
+            renderConfig = config.render,
+            orderMarkers = orderMarkers,
+            orderMarkerConfig = config.orderMarkers,
+            indicatorSnapshot = indicatorOutput,
+            indicatorRegistrySnapshot = indicatorRegistry,
+            indicatorRendererRegistry = state.indicators.chartRuntime.rendererRegistry,
+            indicatorRendererLifecycleHost = state.indicators.chartRuntime.indicatorRendererLifecycleHost,
+            onUnsupportedIndicators = callbacks.onUnsupportedIndicators,
+            paneConfig = config.panes,
+            builtInIndicators = config.builtInIndicators,
+            timeAxisConfig = config.timeAxis,
+            timeLabelFormatter = timeLabelFormatter,
+            axisWidth = config.axisWidth,
+            timeAxisHeight = config.timeAxisHeight,
+            crossTooltipProvider = crossTooltipProvider,
+            mainBackgroundContent = mainBackgroundContent,
+            mainForegroundContent = mainForegroundContent,
+            drawingController = state.drawingController,
+            drawingConfig = config.drawing,
+            drawingMagnifierConfig = config.drawingMagnifier,
+            watermarkConfig = config.watermark,
+            verticalZoomHitRect = verticalZoomHitRect,
+            onDoubleTap = {
+                if (config.resetToLatestOnDoubleTap) state.moveToLatest()
+                callbacks.onDoubleTap()
+            },
+            verticalZoomExitContent = verticalZoomExitContent,
+        )
+    }
 }
 
 /**

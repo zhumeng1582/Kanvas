@@ -12,7 +12,8 @@ Kanvas 是使用 Kotlin 和 Jetpack Compose 构建的 Android 原生 K 线图、
 
 参阅[代码架构说明](ARCHITECTURE.zh-CN.md)，了解模块边界、运行时数据流和后续重构建议；
 高频行情接入请阅读[实时 K 线、指标刷新与画面稳定](docs/realtime-updates.zh-CN.md)，
-示例指标弹窗与参数编辑请阅读[指标选择与参数设置](docs/indicator-settings.zh-CN.md)。
+示例指标弹窗与参数编辑请阅读[指标选择与参数设置](docs/indicator-settings.zh-CN.md)，
+设备性能基线与自定义主图接入请阅读[性能验证与扩展指南](docs/PERFORMANCE.zh-CN.md)。
 
 下载可直接安装的 [Kanvas Example APK v0.1.0](docs/downloads/kanvas-example-0.1.0.apk)。
 该 Release 包使用 Android debug 证书签名，仅用于演示和测试；正式分发请使用自己的

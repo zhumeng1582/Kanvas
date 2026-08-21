@@ -10,6 +10,7 @@ import com.zhumeng.kanvas.core.KlineCandle
 import com.zhumeng.kanvas.core.KlineController
 import com.zhumeng.kanvas.core.KlineInterval
 import com.zhumeng.kanvas.core.KlineSpec
+import com.zhumeng.kanvas.core.KlineViewport
 import com.zhumeng.kanvas.drawing.DrawingController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +21,24 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class KanvasChartStateTest {
+    @Test
+    fun `live facade viewport updates invalidate draw state without replacing composition state`() {
+        val initial = com.zhumeng.kanvas.core.KlineUiState(
+            viewport = KlineViewport(rightEdgeOffsetPx = 0f),
+        )
+        val live = KanvasLiveChartState(initial)
+        val panned = initial.copy(viewport = initial.viewport.copy(rightEdgeOffsetPx = 40f))
+
+        live.update(panned)
+
+        assertTrue(live.compositionState.value === initial)
+        assertTrue(live.drawState.value === panned)
+
+        val revised = panned.copy(revision = 1L)
+        live.update(revised)
+        assertTrue(live.compositionState.value === revised)
+    }
+
     @Test
     fun `facade normalizes input and completes the current historical request`() {
         val fixture = fixture()

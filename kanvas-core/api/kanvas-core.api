@@ -209,8 +209,11 @@ public final class com/zhumeng/kanvas/core/IndicatorOutput {
 	public static final field Companion Lcom/zhumeng/kanvas/core/IndicatorOutput$Companion;
 	public synthetic fun <init> (Lcom/zhumeng/kanvas/core/IndicatorKey;ILjava/util/List;Ljava/lang/Object;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun column (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/IndicatorColumn;
+	public final fun columnAt (I)Lcom/zhumeng/kanvas/core/IndicatorColumn;
 	public final fun columns ()Ljava/util/List;
+	public final fun differsOnlyAtLatestFrom (Lcom/zhumeng/kanvas/core/IndicatorOutput;)Z
 	public fun equals (Ljava/lang/Object;)Z
+	public final fun getColumnCount ()I
 	public final fun getColumnNames ()Ljava/util/Set;
 	public final fun getKey ()Lcom/zhumeng/kanvas/core/IndicatorKey;
 	public final fun getSeriesSize ()I
@@ -460,6 +463,7 @@ public final class com/zhumeng/kanvas/core/IndicatorRuntimeCoordinator : java/la
 	public final fun calculateAhead (Lcom/zhumeng/kanvas/core/KlineSeries;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun close ()V
 	public final fun getError ()Lkotlinx/coroutines/flow/StateFlow;
+	public final fun getRenderState ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getSnapshot ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun getState ()Lkotlinx/coroutines/flow/StateFlow;
 	public final fun publishPrepared (Lcom/zhumeng/kanvas/core/IndicatorRuntimeSnapshot;)Z
@@ -558,6 +562,8 @@ public final class com/zhumeng/kanvas/core/KlineController {
 	public final fun clearLoading ()Lcom/zhumeng/kanvas/core/KlineUiState;
 	public final fun completeLoadMore (JLjava/util/List;Z)Lcom/zhumeng/kanvas/core/KlineDataResult;
 	public static synthetic fun completeLoadMore$default (Lcom/zhumeng/kanvas/core/KlineController;JLjava/util/List;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public final fun completeLoadMorePrepared (JLcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;Z)Lcom/zhumeng/kanvas/core/KlineDataResult;
+	public static synthetic fun completeLoadMorePrepared$default (Lcom/zhumeng/kanvas/core/KlineController;JLcom/zhumeng/kanvas/core/KlineSeries;Lcom/zhumeng/kanvas/core/KlineSeries;ZILjava/lang/Object;)Lcom/zhumeng/kanvas/core/KlineDataResult;
 	public final fun evictCache (Lcom/zhumeng/kanvas/core/KlineSpec;)Z
 	public final fun evictCache (Ljava/lang/String;)Z
 	public final fun failLoadMore (JLjava/lang/String;)Lcom/zhumeng/kanvas/core/KlineUiState;
@@ -589,6 +595,7 @@ public final class com/zhumeng/kanvas/core/KlineDataDisposition : java/lang/Enum
 	public static final field CachedInactiveSpec Lcom/zhumeng/kanvas/core/KlineDataDisposition;
 	public static final field IgnoredInactiveSpec Lcom/zhumeng/kanvas/core/KlineDataDisposition;
 	public static final field IgnoredStaleLoadMore Lcom/zhumeng/kanvas/core/KlineDataDisposition;
+	public static final field IgnoredStalePreparedData Lcom/zhumeng/kanvas/core/KlineDataDisposition;
 	public static fun getEntries ()Lkotlin/enums/EnumEntries;
 	public static fun valueOf (Ljava/lang/String;)Lcom/zhumeng/kanvas/core/KlineDataDisposition;
 	public static fun values ()[Lcom/zhumeng/kanvas/core/KlineDataDisposition;
@@ -699,6 +706,7 @@ public final class com/zhumeng/kanvas/core/KlineSeries {
 	public static final field Companion Lcom/zhumeng/kanvas/core/KlineSeries$Companion;
 	public synthetic fun <init> (Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public final fun appendOlder (Ljava/util/List;)Lcom/zhumeng/kanvas/core/KlineSeriesUpdateResult;
+	public final fun differsOnlyAtLatestFrom (Lcom/zhumeng/kanvas/core/KlineSeries;)Z
 	public final fun fractionalIndexToTimestamp (D)Ljava/lang/Long;
 	public final fun get (I)Lcom/zhumeng/kanvas/core/KlineCandle;
 	public final fun getCandles ()Ljava/util/List;

@@ -69,8 +69,11 @@ class IndicatorRuntimeSnapshot internal constructor(
      * equality plus its registry identity.
      */
     fun matches(state: KlineUiState): Boolean {
-        val exactInput = series.candles == state.series.candles &&
-            (sourceRevision == null || sourceRevision == state.revision)
+        val exactInput = if (sourceRevision == null) {
+            series === state.series || series.candles == state.series.candles
+        } else {
+            sourceRevision == state.revision && series === state.series
+        }
         val sameHistoryWithOpenCandleReplacement =
             state.series.differsOnlyAtLatestFrom(series)
         return exactInput || sameHistoryWithOpenCandleReplacement

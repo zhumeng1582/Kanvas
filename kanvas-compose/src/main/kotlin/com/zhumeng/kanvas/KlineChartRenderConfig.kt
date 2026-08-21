@@ -405,6 +405,12 @@ private fun Float.requirePositiveDensity(): Float {
 
 /** Render-time configuration accepted by [KanvasChart] and built by the host. */
 data class KlineChartRenderConfig(
+    /**
+     * Preferred Compose layer frame rate. `0` clears the preference and lets
+     * the platform choose. The system may still override this request for
+     * display capability, battery, or thermal reasons.
+     */
+    val preferredFrameRate: Float = 120f,
     val viewport: KlineViewportRenderConfig = KlineViewportRenderConfig(),
     val candle: KlineCandleRenderConfig = KlineCandleRenderConfig(),
     val loading: KlineLoadingRenderConfig = KlineLoadingRenderConfig(),
@@ -434,6 +440,9 @@ data class KlineChartRenderConfig(
     val crosshair: KlineCrosshairRenderConfig = KlineCrosshairRenderConfig(),
 ) {
     init {
+        require(preferredFrameRate.isFinite() && preferredFrameRate in 0f..360f) {
+            "Preferred frame rate must be finite and between 0 and 360."
+        }
         require(latestCandleRangeSmoothFactor in 0.1f..1f) {
             "Latest-candle range smooth factor must be between 0.1 and 1."
         }

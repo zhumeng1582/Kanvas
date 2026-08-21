@@ -84,7 +84,8 @@ fun <C : KlineIndicatorPluginConfig> KlineIndicatorPlugin<C>.bind(): KlineIndica
 fun <C : KlineIndicatorPluginConfig> KlineIndicatorPlugin<C>.bind(
     config: C,
 ): KlineIndicatorPluginBinding {
-    val created = createDefinition(config)
+    val boundConfig = config.immutableSnapshot()
+    val created = createDefinition(boundConfig)
     require(created.key == key) {
         "Native indicator plugin '${key.id}' returned '${created.key}', expected the same kind/id"
     }
@@ -92,8 +93,8 @@ fun <C : KlineIndicatorPluginConfig> KlineIndicatorPlugin<C>.bind(
     // config update. Store the typed config itself; parameters are retained as
     // optional scalar metadata for clients that inspect key/value data.
     val definition = created.copy(
-        configuration = config,
-        parameters = config.parameters,
+        configuration = boundConfig,
+        parameters = boundConfig.parameters,
     )
     return KlineIndicatorPluginBinding(
         definition = definition,
@@ -101,6 +102,23 @@ fun <C : KlineIndicatorPluginConfig> KlineIndicatorPlugin<C>.bind(
         statefulRendererFactory = createStatefulRendererFactory(),
     )
 }
+
+/**
+ * Seals mutable collection aliases in the bundled configs at the public
+ * binding boundary. Custom plugin configs retain the documented immutable
+ * contract and are stored as-is.
+ */
+@Suppress("UNCHECKED_CAST")
+private fun <C : KlineIndicatorPluginConfig> C.immutableSnapshot(): C = when (this) {
+    is KlineSinglePeriodIndicatorConfig -> copy(lineStyles = lineStyles.toList())
+    is KlineTriplePeriodIndicatorConfig -> copy(lineStyles = lineStyles.toList())
+    is KlineStyledIndicatorConfig -> copy(lineStyles = lineStyles.toList())
+    is KlineSarIndicatorConfig -> copy(lineStyles = lineStyles.toList())
+    is KlineSuperTrendIndicatorConfig -> copy(lineStyles = lineStyles.toList())
+    is KlineStochasticRsiIndicatorConfig -> copy(lineStyles = lineStyles.toList())
+    is KlineObvIndicatorConfig -> copy(lineStyles = lineStyles.toList())
+    else -> this
+} as C
 
 /** Returns this definition's plugin config with an actionable error on misuse. */
 inline fun <reified C : KlineIndicatorPluginConfig> IndicatorDefinition.requirePluginConfig(): C =
@@ -165,14 +183,22 @@ class KlineIndicatorPluginCatalog private constructor(
 }
 
 /** Scope wrapper that preserves optional overlay/cross/top-Tips/tap capabilities. */
-private class NativeScopedIndicatorRenderer(
+internal class NativeScopedIndicatorRenderer(
     private val key: IndicatorKey,
-    private val delegate: KlineIndicatorRenderer,
+    internal val delegate: KlineIndicatorRenderer,
 ) : KlineIndicatorRenderer,
     KlineIndicatorOverlayRenderer,
     KlineIndicatorCrossRenderer,
     KlineIndicatorTopTipsRenderer,
+    KlineImmutableTopTipsRenderer,
     KlineIndicatorTapHandler {
+    override val cachePolicy: KlineIndicatorCachePolicy
+        get() = delegate.cachePolicy
+
+    override val hasImmutableTopTips: Boolean
+        get() = delegate !is KlineIndicatorTopTipsRenderer ||
+            (delegate as? KlineImmutableTopTipsRenderer)?.hasImmutableTopTips == true
+
     override fun supports(
         definition: IndicatorDefinition,
         output: com.zhumeng.kanvas.core.IndicatorOutput?,
@@ -229,6 +255,36 @@ private class NativeScopedIndicatorRenderer(
             ?.let { (delegate as? KlineIndicatorTapHandler)?.onTap(it) }
             ?: false
 }
+
+/** Resolves the bundled computed-line renderer through plugin scope wrappers. */
+internal fun KlineIndicatorRenderer.builtInComputedLineRendererOrNull(): KlineComputedLineIndicatorRenderer? =
+    when (this) {
+        KlineComputedLineIndicatorRenderer -> KlineComputedLineIndicatorRenderer
+        is NativeScopedIndicatorRenderer -> delegate.builtInComputedLineRendererOrNull()
+        else -> null
+    }
+
+/** Resolves the bundled volume renderer through plugin scope wrappers. */
+internal fun KlineIndicatorRenderer.builtInVolumeRendererOrNull(): KlineVolumeIndicatorRenderer? =
+    when (this) {
+        KlineVolumeIndicatorRenderer -> KlineVolumeIndicatorRenderer
+        is NativeScopedIndicatorRenderer -> delegate.builtInVolumeRendererOrNull()
+        else -> null
+    }
+
+internal fun KlineIndicatorRenderer.hasCrossCapability(): Boolean =
+    when (this) {
+        is NativeScopedIndicatorRenderer -> delegate.hasCrossCapability()
+        else -> this is KlineIndicatorCrossRenderer
+    }
+
+internal fun KlineIndicatorRenderer.hasDynamicTopTipsCapability(): Boolean =
+    when (this) {
+        is NativeScopedIndicatorRenderer -> delegate.hasDynamicTopTipsCapability()
+        is KlineIndicatorTopTipsRenderer ->
+            (this as? KlineImmutableTopTipsRenderer)?.hasImmutableTopTips != true
+        else -> false
+    }
 
 /** Scope wrapper for a plugin-owned stateful renderer factory. */
 private class NativeScopedStatefulIndicatorRendererFactory(

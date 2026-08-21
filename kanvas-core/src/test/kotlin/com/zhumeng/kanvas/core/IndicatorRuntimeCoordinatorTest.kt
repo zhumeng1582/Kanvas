@@ -63,7 +63,12 @@ class IndicatorRuntimeCoordinatorTest {
             }
             val candidate = before.series.appendOlder(older).series
             val prepared = coordinator.calculateAhead(candidate, before.revision + 1L)
-            controller.completeLoadMore(requestId, older, hasMoreOlder = false)
+            controller.completeLoadMorePrepared(
+                requestId = requestId,
+                sourceSeries = before.series,
+                preparedSeries = candidate,
+                hasMoreOlder = false,
+            )
             assertTrue(coordinator.publishPrepared(prepared))
 
             delay(200)

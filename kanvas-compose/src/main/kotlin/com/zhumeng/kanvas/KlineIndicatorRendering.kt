@@ -5,12 +5,13 @@
 
 package com.zhumeng.kanvas
 
+import android.graphics.Paint as AndroidPaint
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.sp
 import com.zhumeng.kanvas.core.IndexRange
 import com.zhumeng.kanvas.core.IndicatorDefinition
@@ -37,7 +38,27 @@ import com.zhumeng.kanvas.core.SuperTrend
  * leaves a declaration active in Core while omitting its Canvas pane, which
  * preserves the raw serialized record without drawing an empty chart area.
  */
+enum class KlineIndicatorCachePolicy {
+    /** Execute [KlineIndicatorRenderer.draw] on every chart draw pass. */
+    Never,
+
+    /**
+     * Cache normal drawing while the immutable [KlineIndicatorDrawContext]
+     * inputs are unchanged. Implementations must not read mutable state that
+     * is absent from the context; overlay, Cross, Top Tips, and tap hooks are
+     * deliberately outside this cache.
+     */
+    ImmutableInputs,
+}
+
 interface KlineIndicatorRenderer {
+    /**
+     * Normal-draw caching contract. Custom and stateful renderers are kept
+     * uncached unless they explicitly opt in.
+     */
+    val cachePolicy: KlineIndicatorCachePolicy
+        get() = KlineIndicatorCachePolicy.Never
+
     /**
      * Pure, deterministic matcher for this declaration/output pair. The chart
      * may call it during composition and pointer hit-testing, so it must not
@@ -94,6 +115,12 @@ interface KlineIndicatorOverlayRenderer {
         scope: DrawScope,
         context: KlineIndicatorOverlayDrawContext,
     )
+}
+
+/** Internal opt-in used to cache only bundled deterministic Top Tips preparation. */
+internal interface KlineImmutableTopTipsRenderer {
+    val hasImmutableTopTips: Boolean
+        get() = true
 }
 
 /** Canvas data plus the full frame geometry supplied to an overlay renderer. */
@@ -384,6 +411,8 @@ class KlineIndicatorRendererRegistry(
 
 /** Default renderer for the Android example `Volume` output column. */
 object KlineVolumeIndicatorRenderer : KlineIndicatorRenderer {
+    override val cachePolicy: KlineIndicatorCachePolicy = KlineIndicatorCachePolicy.ImmutableInputs
+
     override fun supports(definition: IndicatorDefinition, output: IndicatorOutput?): Boolean =
         definition.calculator === Volume &&
             // An attached Computed indicator owns its pane before its first
@@ -409,10 +438,26 @@ object KlineVolumeIndicatorRenderer : KlineIndicatorRenderer {
 /** Default renderer for non-volume computed columns, including Android MA examples. */
 private data class KlineComputedTopTipsPrepared(
     override val claimedHeightPx: Float,
-    val textLayouts: List<TextLayoutResult>,
+    val entries: List<KlineComputedTopTip>,
 ) : KlineIndicatorTopTipsPrepared
 
-object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicatorTopTipsRenderer {
+private data class KlineComputedTopTip(
+    val text: String,
+    val color: Color,
+)
+
+private val klineComputedTopTipsPaint = object : ThreadLocal<AndroidPaint>() {
+    override fun initialValue(): AndroidPaint = AndroidPaint(
+        AndroidPaint.ANTI_ALIAS_FLAG or AndroidPaint.SUBPIXEL_TEXT_FLAG,
+    )
+}
+
+object KlineComputedLineIndicatorRenderer :
+    KlineIndicatorRenderer,
+    KlineIndicatorTopTipsRenderer,
+    KlineImmutableTopTipsRenderer {
+    override val cachePolicy: KlineIndicatorCachePolicy = KlineIndicatorCachePolicy.ImmutableInputs
+
     override fun supports(definition: IndicatorDefinition, output: IndicatorOutput?): Boolean =
         // Keep an attached computed renderer and its pane geometry while a
         // calculation is pending. An empty/null output
@@ -519,7 +564,7 @@ object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicat
         var hasValue = false
         val configuredStyles = context.indicator.definition.configuredLineStyles()
         val fallbackColors = context.indicator.style.indicatorLines.ifEmpty { listOf(context.indicator.style.line) }
-        val textLayouts = buildList {
+        val entries = buildList {
             for (columnIndex in 0 until output.columnCount) {
                 val column = output.columnAt(columnIndex)
                 val value = column[index]
@@ -535,9 +580,9 @@ object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicat
                 val color = configuredStyles.getOrNull(columnIndex)?.color
                     ?: fallbackColors[(context.indicator.colorIndex + columnIndex) % fallbackColors.size]
                 add(
-                    context.textMeasurer.measure(
-                        "$displayName: ${"%.2f".format(java.util.Locale.US, value)}",
-                        TextStyle(color = color, fontSize = 10.sp),
+                    KlineComputedTopTip(
+                        text = "$displayName: ${"%.2f".format(java.util.Locale.US, value)}",
+                        color = color,
                     ),
                 )
             }
@@ -545,7 +590,7 @@ object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicat
         if (!hasValue) return null
         return KlineComputedTopTipsPrepared(
             claimedHeightPx = (16f + 4f) * context.indicator.densityScale,
-            textLayouts = textLayouts,
+            entries = entries,
         )
     }
 
@@ -554,9 +599,20 @@ object KlineComputedLineIndicatorRenderer : KlineIndicatorRenderer, KlineIndicat
         val tipPadding = 4f * context.indicator.densityScale
         var x = context.placement.geometry.tipsRect.left + tipPadding
         val y = context.placement.geometry.tipsRect.top + tipPadding
-        prepared.textLayouts.forEach { layout ->
-            scope.drawText(layout, topLeft = androidx.compose.ui.geometry.Offset(x, y))
-            x += layout.size.width + 8f * context.indicator.densityScale
+        val paint = checkNotNull(klineComputedTopTipsPaint.get()).apply {
+            textSize = with(scope) { 10.sp.toPx() }
+            style = AndroidPaint.Style.FILL
+            textAlign = AndroidPaint.Align.LEFT
+            typeface = android.graphics.Typeface.DEFAULT
+            isFakeBoldText = false
+            textSkewX = 0f
+        }
+        val baseline = y - paint.fontMetrics.top
+        val canvas = scope.drawContext.canvas.nativeCanvas
+        prepared.entries.forEach { entry ->
+            paint.color = entry.color.toArgb()
+            canvas.drawText(entry.text, x, baseline, paint)
+            x += paint.measureText(entry.text) + 8f * context.indicator.densityScale
         }
     }
 }
@@ -595,6 +651,8 @@ private fun com.zhumeng.kanvas.core.IndicatorColumn.displayName(): String = when
 
 /** Point renderer for Parabolic SAR; scoped by the native plugin binding. */
 object KlineSarIndicatorRenderer : KlineIndicatorRenderer {
+    override val cachePolicy: KlineIndicatorCachePolicy = KlineIndicatorCachePolicy.ImmutableInputs
+
     override fun supports(definition: IndicatorDefinition, output: IndicatorOutput?): Boolean =
         definition.calculator is com.zhumeng.kanvas.core.ParabolicSar
 

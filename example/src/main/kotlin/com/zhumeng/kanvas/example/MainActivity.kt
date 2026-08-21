@@ -124,6 +124,9 @@ import kotlin.random.Random
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val initialCandleCount = intent
+            .getIntExtra("com.zhumeng.kanvas.example.CANDLE_COUNT", 240)
+            .coerceIn(240, 100_000)
         setContent {
             val systemDark = isSystemInDarkTheme()
             var darkTheme by rememberSaveable { mutableStateOf(systemDark) }
@@ -131,6 +134,7 @@ class MainActivity : ComponentActivity() {
                 ReferenceSample(
                     darkTheme = darkTheme,
                     onToggleTheme = { darkTheme = !darkTheme },
+                    initialCandleCount = initialCandleCount,
                 )
             }
         }
@@ -141,6 +145,7 @@ class MainActivity : ComponentActivity() {
 private fun ReferenceSample(
     darkTheme: Boolean,
     onToggleTheme: () -> Unit,
+    initialCandleCount: Int,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     var riseRed by rememberSaveable { mutableStateOf(false) }
@@ -290,7 +295,7 @@ private fun ReferenceSample(
         chartState.setMarket(
             spec = spec,
             candles = sampleCandles(
-                count = 240,
+                count = initialCandleCount,
                 latestHourMillis = fixtureLatestMillis,
                 candleIntervalMillis = candleIntervalMillis,
             ),
@@ -582,7 +587,9 @@ private fun ReferenceSample(
                     ),
                 ),
                 orderMarkers = if (chartType is KlineChartType.Bar) sampleOrderMarkers else emptyList(),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .semantics { contentDescription = "Kanvas chart" },
             )
             if (showDrawingTools) {
                 DrawingToolPicker(

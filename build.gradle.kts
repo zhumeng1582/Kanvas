@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm") version "2.2.20" apply false
     id("com.android.library") version "8.11.1" apply false
     id("com.android.application") version "8.11.1" apply false
+    id("com.android.test") version "8.11.1" apply false
     id("org.jetbrains.kotlin.android") version "2.2.20" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.20" apply false
     id("org.jetbrains.dokka-javadoc") version "2.2.0" apply false
@@ -10,6 +11,7 @@ plugins {
 
 apiValidation {
     ignoredProjects.add("example")
+    ignoredProjects.add("benchmark")
 }
 
 allprojects {

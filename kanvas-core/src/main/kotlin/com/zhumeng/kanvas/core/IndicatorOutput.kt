@@ -57,6 +57,9 @@ class IndicatorColumn private constructor(
     /** Persistent O(1) replacement for an incrementally recalculated newest sample. */
     internal fun withLatestValue(value: Double): IndicatorColumn =
         IndicatorColumn(name = name, values = values, latestOverride = value)
+
+    internal fun differsOnlyAtLatestFrom(previous: IndicatorColumn): Boolean =
+        name == previous.name && size == previous.size && values === previous.values
 }
 
 /**
@@ -95,6 +98,28 @@ class IndicatorOutput private constructor(
 
     /** Returns an independent list; mutating it cannot affect this output. */
     fun columns(): List<IndicatorColumn> = columnStorage.toList()
+
+    /**
+     * Returns true when both outputs share all samples except index zero.
+     *
+     * Built-in incremental calculators preserve their historical column
+     * storage during a live-candle replacement, making this check O(column
+     * count). A false result is conservative and must invalidate a renderer's
+     * historical cache.
+     */
+    fun differsOnlyAtLatestFrom(previous: IndicatorOutput?): Boolean {
+        if (
+            previous == null ||
+            key != previous.key ||
+            seriesSize != previous.seriesSize ||
+            columnStorage.size != previous.columnStorage.size
+        ) {
+            return false
+        }
+        return columnStorage.indices.all { index ->
+            columnStorage[index].differsOnlyAtLatestFrom(previous.columnStorage[index])
+        }
+    }
 
     override fun equals(other: Any?): Boolean =
         other is IndicatorOutput &&

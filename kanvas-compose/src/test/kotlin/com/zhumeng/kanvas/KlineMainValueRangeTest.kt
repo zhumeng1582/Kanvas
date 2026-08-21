@@ -12,8 +12,63 @@ import com.zhumeng.kanvas.core.IndicatorOutput
 import com.zhumeng.kanvas.core.KlineCandle
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class KlineMainValueRangeTest {
+    @Test
+    fun `realtime ranges keep latest sample out of historical layer`() {
+        assertEquals(
+            KlineRealtimeLayerRanges(
+                historical = IndexRange(1, 20),
+                patch = IndexRange(0, 1),
+            ),
+            resolveKlineRealtimeLayerRanges(IndexRange(0, 20), candleCount = 100, lineLike = false),
+        )
+        assertEquals(
+            KlineRealtimeLayerRanges(
+                historical = IndexRange(1, 20),
+                patch = IndexRange(0, 2),
+            ),
+            resolveKlineRealtimeLayerRanges(IndexRange(0, 20), candleCount = 100, lineLike = true),
+        )
+        assertEquals(
+            KlineRealtimeLayerRanges(
+                historical = IndexRange(12, 30),
+                patch = IndexRange.Empty,
+            ),
+            resolveKlineRealtimeLayerRanges(IndexRange(12, 30), candleCount = 100, lineLike = true),
+        )
+    }
+
+    @Test
+    fun `pan paint bucket stays stable within half-screen index window`() {
+        val first = resolveKlinePanPaintBucket(
+            currentPaintRange = IndexRange(25, 37),
+            candleCount = 100,
+            plotWidthPx = 100f,
+            candleStepPx = 10f,
+        )
+        val shifted = resolveKlinePanPaintBucket(
+            // Fractional visibility may add one edge candle without crossing
+            // the half-screen bucket boundary.
+            currentPaintRange = IndexRange(30, 43),
+            candleCount = 100,
+            plotWidthPx = 100f,
+            candleStepPx = 10f,
+        )
+        val nextBucket = resolveKlinePanPaintBucket(
+            currentPaintRange = IndexRange(32, 44),
+            candleCount = 100,
+            plotWidthPx = 100f,
+            candleStepPx = 10f,
+        )
+
+        assertEquals(first, shifted)
+        assertTrue(first.paintRange.startInclusive <= 25)
+        assertTrue(first.paintRange.endExclusive >= 43)
+        assertTrue(nextBucket.paintRange != first.paintRange)
+    }
+
     @Test
     fun `combine main outputs expand the Candle value range only across the visible paint range`() {
         val candles = listOf(

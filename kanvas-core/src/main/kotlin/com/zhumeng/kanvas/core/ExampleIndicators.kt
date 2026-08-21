@@ -183,14 +183,35 @@ class BollingerBands(val period: Int = 20, val deviation: Double = 2.0) : Indica
         val middle = DoubleArray(input.series.size) { Double.NaN }
         val upper = DoubleArray(input.series.size) { Double.NaN }
         val lower = DoubleArray(input.series.size) { Double.NaN }
-        for (i in 0..input.series.size - period) {
-            var sum = 0.0
-            for (j in i until i + period) sum += input.series[j].close
-            val mean = sum / period
-            var variance = 0.0
-            for (j in i until i + period) { val d = input.series[j].close - mean; variance += d * d }
-            val band = kotlin.math.sqrt(variance / period) * deviation
-            middle[i] = mean; upper[i] = mean + band; lower[i] = mean - band
+        var sum = 0.0
+        var squaredSum = 0.0
+        var nonFiniteCount = 0
+        for (i in (input.series.size - 1) downTo 0) {
+            val added = input.series[i].close
+            if (added.isFinite()) {
+                sum += added
+                squaredSum += added * added
+            } else {
+                nonFiniteCount++
+            }
+            val removedIndex = i + period
+            if (removedIndex < input.series.size) {
+                val removed = input.series[removedIndex].close
+                if (removed.isFinite()) {
+                    sum -= removed
+                    squaredSum -= removed * removed
+                } else {
+                    nonFiniteCount--
+                }
+            }
+            if (i + period <= input.series.size && nonFiniteCount == 0) {
+                val mean = sum / period
+                val variance = (squaredSum / period - mean * mean).coerceAtLeast(0.0)
+                val band = kotlin.math.sqrt(variance) * deviation
+                middle[i] = mean
+                upper[i] = mean + band
+                lower[i] = mean - band
+            }
         }
         return IndicatorOutput.of(input.definition.key, input.series.size, listOf(
             IndicatorColumn.ofOwned("boll_upper", upper), IndicatorColumn.ofOwned("boll_mid", middle), IndicatorColumn.ofOwned("boll_lower", lower),
@@ -277,15 +298,49 @@ class Kdj(
                 return patchedLatestOutput(input, mapOf("k" to kValue, "d" to dValue, "j" to (3 * kValue - 2 * dValue)))
             }
         }
-        val k = DoubleArray(input.series.size) { Double.NaN }; val d = DoubleArray(input.series.size) { Double.NaN }; val j = DoubleArray(input.series.size) { Double.NaN }
-        var prevK = 50.0; var prevD = 50.0
-        for (i in (input.series.size - period) downTo 0) {
-            var high = Double.NEGATIVE_INFINITY; var low = Double.POSITIVE_INFINITY
-            for (x in i until i + period) { high = maxOf(high, input.series[x].high); low = minOf(low, input.series[x].low) }
-            val rsv = if (high == low) 50.0 else (input.series[i].close - low) / (high - low) * 100.0
+        val k = DoubleArray(input.series.size) { Double.NaN }
+        val d = DoubleArray(input.series.size) { Double.NaN }
+        val j = DoubleArray(input.series.size) { Double.NaN }
+        val highDeque = IntArray(input.series.size)
+        val lowDeque = IntArray(input.series.size)
+        var highHead = 0
+        var highTail = 0
+        var lowHead = 0
+        var lowTail = 0
+        var invalidCount = 0
+        var prevK = 50.0
+        var prevD = 50.0
+        for (i in (input.series.size - 1) downTo 0) {
+            val expiredIndex = i + period
+            if (expiredIndex < input.series.size) {
+                if (!input.series[expiredIndex].high.isFinite() || !input.series[expiredIndex].low.isFinite()) {
+                    invalidCount--
+                }
+                if (highHead < highTail && highDeque[highHead] == expiredIndex) highHead++
+                if (lowHead < lowTail && lowDeque[lowHead] == expiredIndex) lowHead++
+            }
+            val candle = input.series[i]
+            if (!candle.high.isFinite() || !candle.low.isFinite()) {
+                invalidCount++
+            } else {
+                while (highHead < highTail && input.series[highDeque[highTail - 1]].high <= candle.high) highTail--
+                highDeque[highTail++] = i
+                while (lowHead < lowTail && input.series[lowDeque[lowTail - 1]].low >= candle.low) lowTail--
+                lowDeque[lowTail++] = i
+            }
+            if (i + period > input.series.size) continue
+            val rsv = if (invalidCount > 0 || highHead >= highTail || lowHead >= lowTail) {
+                Double.NaN
+            } else {
+                val high = input.series[highDeque[highHead]].high
+                val low = input.series[lowDeque[lowHead]].low
+                if (high == low) 50.0 else (candle.close - low) / (high - low) * 100.0
+            }
             prevK = (prevK * (smoothing - 1) + rsv) / smoothing
             prevD = (prevD * (dSmoothing - 1) + prevK) / dSmoothing
-            k[i] = prevK; d[i] = prevD; j[i] = 3 * prevK - 2 * prevD
+            k[i] = prevK
+            d[i] = prevD
+            j[i] = 3 * prevK - 2 * prevD
         }
         return IndicatorOutput.of(input.definition.key, input.series.size, listOf(IndicatorColumn.ofOwned("k", k), IndicatorColumn.ofOwned("d", d), IndicatorColumn.ofOwned("j", j)))
     }

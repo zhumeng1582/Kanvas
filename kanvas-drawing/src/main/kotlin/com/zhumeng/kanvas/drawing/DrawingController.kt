@@ -8,10 +8,34 @@ package com.zhumeng.kanvas.drawing
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.zhumeng.kanvas.core.KlineCandle
 import java.util.UUID
+import java.util.RandomAccess
+
+/** O(1) immutable replacement used by repeated drags of the same overlay. */
+private class DrawingOverlayReplacementList(
+    private val source: List<DrawingOverlay>,
+    private val replacementIndex: Int,
+    private val replacement: DrawingOverlay,
+) : AbstractList<DrawingOverlay>(), RandomAccess {
+    override val size: Int get() = source.size
+
+    override fun get(index: Int): DrawingOverlay =
+        if (index == replacementIndex) replacement else source[index]
+
+    companion object {
+        fun replace(source: List<DrawingOverlay>, index: Int, overlay: DrawingOverlay): List<DrawingOverlay> {
+            val flattenedSource = (source as? DrawingOverlayReplacementList)
+                ?.takeIf { it.replacementIndex == index }
+                ?.source
+                ?: source
+            return DrawingOverlayReplacementList(flattenedSource, index, overlay)
+        }
+    }
+}
 
 @Immutable
 data class DrawingSnapshot(
@@ -35,8 +59,13 @@ class DrawingController(
     private val undoStack = ArrayDeque<List<DrawingOverlay>>()
     private val redoStack = ArrayDeque<List<DrawingOverlay>>()
 
-    var snapshot: DrawingSnapshot by mutableStateOf(DrawingSnapshot())
+    // Every controller mutation is explicit and already equality-guarded where
+    // needed. Avoid structural List equality on gesture-rate overlay updates.
+    var snapshot: DrawingSnapshot by mutableStateOf(DrawingSnapshot(), neverEqualPolicy())
         private set
+
+    private var cachedOverlayId: String? = null
+    private var cachedOverlayIndex: Int = -1
 
     val canUndo: Boolean get() = undoStack.size > 1
     val canRedo: Boolean get() = redoStack.isNotEmpty()
@@ -84,7 +113,7 @@ class DrawingController(
 
     fun confirmPoint(point: DrawingPoint, continueDrawing: Boolean = false): DrawingState {
         val drawing = snapshot.state as? DrawingState.Drawing ?: return snapshot.state
-        val overlay = snapshot.overlays.first { it.id == drawing.overlayId }
+        val overlay = snapshot.overlays[overlayIndex(drawing.overlayId)]
         val points = overlay.points.toMutableList().apply { this[drawing.pointerIndex] = point }
         val updated = overlay.copy(points = points)
         val next = points.indexOfFirst { it == null }
@@ -107,7 +136,10 @@ class DrawingController(
 
     fun select(position: Offset, space: DrawingCoordinateSpace, maxDistancePx: Float = 10f): DrawingOverlay? {
         val selected = snapshot.overlays.asReversed().firstOrNull { overlay ->
-            registry[overlay.type]?.hitTest(overlay, space, position, maxDistancePx) == true
+            registry[overlay.type]?.let { tool ->
+                tool.isVisible(overlay, space, marginPx = maxDistancePx) &&
+                    tool.hitTest(overlay, space, position, maxDistancePx)
+            } == true
         }
         snapshot = snapshot.copy(
             state = selected?.let { DrawingState.Editing(it.id) } ?: DrawingState.Exited,
@@ -118,7 +150,7 @@ class DrawingController(
 
     fun selectPoint(position: Offset, space: DrawingCoordinateSpace, maxDistancePx: Float = 10f): Int? {
         val editing = snapshot.state as? DrawingState.Editing ?: return null
-        val overlay = snapshot.overlays.first { it.id == editing.overlayId }
+        val overlay = snapshot.overlays[overlayIndex(editing.overlayId)]
         val pointIndex = overlay.points.indices.minByOrNull { index ->
             overlay.points[index]?.let(space::project)?.let { (it - position).getDistance() } ?: Float.MAX_VALUE
         }?.takeIf { index ->
@@ -136,7 +168,7 @@ class DrawingController(
     fun moveSelectedPoint(point: DrawingPoint, pointer: Offset?): Boolean {
         val editing = snapshot.state as? DrawingState.Editing ?: return false
         val index = editing.selectedPointIndex ?: return false
-        val overlayIndex = snapshot.overlays.indexOfFirst { it.id == editing.overlayId }
+        val overlayIndex = overlayIndex(editing.overlayId)
         if (overlayIndex < 0) return false
         val overlay = snapshot.overlays[overlayIndex]
         if (overlay.locked) return false
@@ -173,7 +205,7 @@ class DrawingController(
         pointer: Offset?,
     ): Boolean {
         val editing = snapshot.state as? DrawingState.Editing ?: return false
-        val overlayIndex = snapshot.overlays.indexOfFirst { it.id == editing.overlayId }
+        val overlayIndex = overlayIndex(editing.overlayId)
         if (overlayIndex < 0) return false
         val overlay = snapshot.overlays[overlayIndex]
         if (overlay.locked || !overlay.isComplete) return false
@@ -245,7 +277,7 @@ class DrawingController(
 
     fun updateSelected(transform: (DrawingOverlay) -> DrawingOverlay): Boolean {
         val editing = snapshot.state as? DrawingState.Editing ?: return false
-        val overlay = snapshot.overlays.first { it.id == editing.overlayId }
+        val overlay = snapshot.overlays[overlayIndex(editing.overlayId)]
         replace(transform(overlay).copy(id = overlay.id, symbol = overlay.symbol, type = overlay.type), editing)
         persist()
         recordHistory()
@@ -357,16 +389,17 @@ class DrawingController(
         overlay: DrawingOverlay,
         state: DrawingState,
         pointer: Offset? = snapshot.pointer,
-        currentIndex: Int = snapshot.overlays.indexOfFirst { it.id == overlay.id },
+        currentIndex: Int = overlayIndex(overlay.id),
     ) {
         if (currentIndex < 0) return
         val previous = snapshot.overlays[currentIndex]
-        val overlays = snapshot.overlays.toMutableList().apply {
-            this[currentIndex] = overlay
-            // Point and line-style drags preserve z order. Only explicit
-            // reordering (or a custom transform that changes zIndex) pays for
-            // sorting the complete overlay collection.
-            if (previous.zIndex != overlay.zIndex) sortBy(DrawingOverlay::zIndex)
+        val overlays = if (previous.zIndex == overlay.zIndex) {
+            DrawingOverlayReplacementList.replace(snapshot.overlays, currentIndex, overlay)
+        } else {
+            snapshot.overlays.toMutableList().apply {
+                this[currentIndex] = overlay
+                sortBy(DrawingOverlay::zIndex)
+            }
         }
         snapshot = snapshot.copy(
             overlays = overlays,
@@ -377,7 +410,7 @@ class DrawingController(
 
     private fun reorderSelected(top: Boolean): Boolean {
         val editing = snapshot.state as? DrawingState.Editing ?: return false
-        val overlay = snapshot.overlays.first { it.id == editing.overlayId }
+        val overlay = snapshot.overlays[overlayIndex(editing.overlayId)]
         val targetZ = if (top) {
             (snapshot.overlays.maxOfOrNull(DrawingOverlay::zIndex) ?: 0) + 1
         } else {
@@ -391,7 +424,22 @@ class DrawingController(
 
     private fun selectedOverlay(): DrawingOverlay? {
         val id = (snapshot.state as? DrawingState.Editing)?.overlayId ?: return null
-        return snapshot.overlays.firstOrNull { it.id == id }
+        val index = overlayIndex(id)
+        return snapshot.overlays.getOrNull(index)
+    }
+
+    private fun overlayIndex(id: String): Int {
+        if (
+            cachedOverlayId == id &&
+            cachedOverlayIndex in snapshot.overlays.indices &&
+            snapshot.overlays[cachedOverlayIndex].id == id
+        ) {
+            return cachedOverlayIndex
+        }
+        val index = snapshot.overlays.indexOfFirst { it.id == id }
+        cachedOverlayId = id
+        cachedOverlayIndex = index
+        return index
     }
 
     private fun completeOverlays(): List<DrawingOverlay> = snapshot.overlays.filter(DrawingOverlay::isComplete)

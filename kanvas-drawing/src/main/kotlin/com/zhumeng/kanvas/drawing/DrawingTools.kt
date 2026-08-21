@@ -15,6 +15,14 @@ import kotlin.math.abs
 interface DrawingTool {
     val type: DrawingTypeDescriptor
 
+    /** Cheap viewport culling hook. Custom tools default to visible for correctness. */
+    fun isVisible(
+        overlay: DrawingOverlay,
+        space: DrawingCoordinateSpace,
+        pointer: Offset? = null,
+        marginPx: Float = 0f,
+    ): Boolean = true
+
     fun hitTest(
         overlay: DrawingOverlay,
         space: DrawingCoordinateSpace,
@@ -37,6 +45,29 @@ private fun DrawingOverlay.projectedPoints(space: DrawingCoordinateSpace, pointe
         points.forEach { point -> point?.let(space::project)?.let(::add) }
         pointer?.let(::add)
     }
+
+private fun Offset.isInside(rect: androidx.compose.ui.geometry.Rect): Boolean =
+    x in rect.left..rect.right && y in rect.top..rect.bottom
+
+private fun androidx.compose.ui.geometry.Rect.expandedBy(marginPx: Float): androidx.compose.ui.geometry.Rect =
+    androidx.compose.ui.geometry.Rect(
+        left = left - marginPx,
+        top = top - marginPx,
+        right = right + marginPx,
+        bottom = bottom + marginPx,
+    )
+
+private fun boundsOverlap(
+    first: Offset,
+    second: Offset,
+    rect: androidx.compose.ui.geometry.Rect,
+): Boolean {
+    val left = minOf(first.x, second.x)
+    val right = maxOf(first.x, second.x)
+    val top = minOf(first.y, second.y)
+    val bottom = maxOf(first.y, second.y)
+    return right >= rect.left && left <= rect.right && bottom >= rect.top && top <= rect.bottom
+}
 
 private fun DrawingLineStyle.stroke(densityScale: Float): Stroke = Stroke(
     width = strokeWidthPx * densityScale,
@@ -84,6 +115,16 @@ abstract class TwoPointDrawingTool : DrawingTool {
 class TwoPointLineDrawingTool : TwoPointDrawingTool() {
     override val type = DrawingTypeDescriptor.TwoPointLine
 
+    override fun isVisible(overlay: DrawingOverlay, space: DrawingCoordinateSpace, pointer: Offset?, marginPx: Float): Boolean {
+        val points = overlay.projectedPoints(space, pointer)
+        val viewport = space.plotRect.expandedBy(marginPx)
+        return when (points.size) {
+            0 -> false
+            1 -> points[0].isInside(viewport)
+            else -> boundsOverlap(points[0], points[1], viewport)
+        }
+    }
+
     override fun hitTest(overlay: DrawingOverlay, space: DrawingCoordinateSpace, position: Offset, maxDistancePx: Float): Boolean {
         val points = projected(overlay, space)
         return points.any { (it - position).getDistance() <= maxDistancePx } ||
@@ -107,6 +148,14 @@ class TwoPointLineDrawingTool : TwoPointDrawingTool() {
 class RayLineDrawingTool : TwoPointDrawingTool() {
     override val type = DrawingTypeDescriptor.RayLine
 
+    override fun isVisible(overlay: DrawingOverlay, space: DrawingCoordinateSpace, pointer: Offset?, marginPx: Float): Boolean {
+        val points = overlay.projectedPoints(space, pointer)
+        val viewport = space.plotRect.expandedBy(marginPx)
+        if (points.isEmpty()) return false
+        if (points.size == 1) return points[0].isInside(viewport)
+        return points[0].isInside(viewport) || rayEndInRect(points[0], points[1], viewport) != null
+    }
+
     override fun hitTest(overlay: DrawingOverlay, space: DrawingCoordinateSpace, position: Offset, maxDistancePx: Float): Boolean {
         val points = projected(overlay, space)
         return points.any { (it - position).getDistance() <= maxDistancePx } ||
@@ -125,6 +174,15 @@ class RayLineDrawingTool : TwoPointDrawingTool() {
 
 class StraightLineDrawingTool : TwoPointDrawingTool() {
     override val type = DrawingTypeDescriptor.StraightLine
+
+    override fun isVisible(overlay: DrawingOverlay, space: DrawingCoordinateSpace, pointer: Offset?, marginPx: Float): Boolean {
+        val points = overlay.projectedPoints(space, pointer)
+        val viewport = space.plotRect.expandedBy(marginPx)
+        if (points.isEmpty()) return false
+        if (points.size == 1) return points[0].isInside(viewport)
+        return points.any { it.isInside(viewport) } ||
+            lineIntersectionsWithRect(points[0], points[1], viewport) != null
+    }
 
     override fun hitTest(overlay: DrawingOverlay, space: DrawingCoordinateSpace, position: Offset, maxDistancePx: Float): Boolean {
         val points = projected(overlay, space)
@@ -153,6 +211,10 @@ abstract class OnePointAxisDrawingTool : DrawingTool {
 
 class HorizontalLineDrawingTool : OnePointAxisDrawingTool() {
     override val type = DrawingTypeDescriptor.HorizontalLine
+    override fun isVisible(overlay: DrawingOverlay, space: DrawingCoordinateSpace, pointer: Offset?, marginPx: Float): Boolean =
+        (point(overlay, space) ?: pointer)?.y?.let {
+            it in (space.plotRect.top - marginPx)..(space.plotRect.bottom + marginPx)
+        } == true
     override fun hitTest(overlay: DrawingOverlay, space: DrawingCoordinateSpace, position: Offset, maxDistancePx: Float): Boolean =
         point(overlay, space)?.let { abs(position.y - it.y) <= maxDistancePx } == true
 
@@ -165,6 +227,10 @@ class HorizontalLineDrawingTool : OnePointAxisDrawingTool() {
 
 class VerticalLineDrawingTool : OnePointAxisDrawingTool() {
     override val type = DrawingTypeDescriptor.VerticalLine
+    override fun isVisible(overlay: DrawingOverlay, space: DrawingCoordinateSpace, pointer: Offset?, marginPx: Float): Boolean =
+        (point(overlay, space) ?: pointer)?.x?.let {
+            it in (space.plotRect.left - marginPx)..(space.plotRect.right + marginPx)
+        } == true
     override fun hitTest(overlay: DrawingOverlay, space: DrawingCoordinateSpace, position: Offset, maxDistancePx: Float): Boolean =
         point(overlay, space)?.let { abs(position.x - it.x) <= maxDistancePx } == true
 
@@ -177,6 +243,16 @@ class VerticalLineDrawingTool : OnePointAxisDrawingTool() {
 
 class RectangleDrawingTool : TwoPointDrawingTool() {
     override val type = DrawingTypeDescriptor.Rectangle
+
+    override fun isVisible(overlay: DrawingOverlay, space: DrawingCoordinateSpace, pointer: Offset?, marginPx: Float): Boolean {
+        val points = overlay.projectedPoints(space, pointer)
+        val viewport = space.plotRect.expandedBy(marginPx)
+        return when (points.size) {
+            0 -> false
+            1 -> points[0].isInside(viewport)
+            else -> boundsOverlap(points[0], points[1], viewport)
+        }
+    }
 
     override fun hitTest(overlay: DrawingOverlay, space: DrawingCoordinateSpace, position: Offset, maxDistancePx: Float): Boolean {
         val points = projected(overlay, space)
@@ -202,6 +278,16 @@ class RectangleDrawingTool : TwoPointDrawingTool() {
 class FibonacciRetracementDrawingTool : TwoPointDrawingTool() {
     override val type = DrawingTypeDescriptor.FibonacciRetracement
     private val levels = listOf(0f, 0.236f, 0.382f, 0.5f, 0.618f, 0.786f, 1f)
+
+    override fun isVisible(overlay: DrawingOverlay, space: DrawingCoordinateSpace, pointer: Offset?, marginPx: Float): Boolean {
+        val points = overlay.projectedPoints(space, pointer)
+        val viewport = space.plotRect.expandedBy(marginPx)
+        return when (points.size) {
+            0 -> false
+            1 -> points[0].isInside(viewport)
+            else -> boundsOverlap(points[0], points[1], viewport)
+        }
+    }
 
     override fun hitTest(overlay: DrawingOverlay, space: DrawingCoordinateSpace, position: Offset, maxDistancePx: Float): Boolean {
         val points = projected(overlay, space)

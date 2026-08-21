@@ -8,6 +8,7 @@ package com.zhumeng.kanvas
 import com.zhumeng.kanvas.core.KlineCandle
 import com.zhumeng.kanvas.core.KlineLoadingState
 import com.zhumeng.kanvas.core.KlineSeries
+import com.zhumeng.kanvas.core.KlineViewport
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -16,6 +17,26 @@ import kotlin.test.assertTrue
 
 class KlineValueRangeSmootherTest {
     @Test
+    fun `viewport change wins when a realtime tick arrives during pan`() {
+        assertFalse(
+            resolveKlineRealtimeRangeMode(
+                viewportChanged = true,
+                latestCandleOnlyUpdate = true,
+                seriesChanged = true,
+                previousMode = true,
+            ),
+        )
+        assertTrue(
+            resolveKlineRealtimeRangeMode(
+                viewportChanged = false,
+                latestCandleOnlyUpdate = true,
+                seriesChanged = true,
+                previousMode = false,
+            ),
+        )
+    }
+
+    @Test
     fun `pan range interpolates and exact end frame converges`() {
         val smoother = KlineValueRangeSmoother()
         assertEquals(KlineValueRange(0.0, 10.0), smoother.resolve(KlineValueRange(0.0, 10.0), 1f, "BTC"))
@@ -23,6 +44,78 @@ class KlineValueRangeSmootherTest {
         assertEquals(1.5, interpolated.minimum, 1e-6)
         assertEquals(11.5, interpolated.maximum, 1e-6)
         assertEquals(KlineValueRange(10.0, 20.0), smoother.resolve(KlineValueRange(10.0, 20.0), 1f, "BTC"))
+    }
+
+    @Test
+    fun `gesture isolates series ticks but applies every viewport range immediately`() {
+        val rangeRef = KlineGestureValueRangeRef()
+        val initialViewport = KlineViewport(rightEdgeOffsetPx = 0f)
+        val movedViewport = initialViewport.copy(rightEdgeOffsetPx = 40f)
+        val movedAgainViewport = initialViewport.copy(rightEdgeOffsetPx = 80f)
+        assertEquals(
+            KlineValueRange(100.0, 200.0),
+            rangeRef.resolve(
+                KlineValueRange(100.0, 200.0),
+                initialViewport,
+                freezeRealtimeTick = false,
+            ),
+        )
+        val token = rangeRef.begin(initialViewport)
+
+        // Same viewport: a realtime series tick cannot move the Y axis.
+        assertEquals(
+            KlineValueRange(100.0, 200.0),
+            rangeRef.resolve(
+                KlineValueRange(90.0, 210.0),
+                initialViewport,
+                freezeRealtimeTick = true,
+            ),
+        )
+        // Same viewport but a structural series update (load more/new candle)
+        // must update immediately rather than waiting for pointer-up.
+        assertEquals(
+            KlineValueRange(50.0, 250.0),
+            rangeRef.resolve(
+                KlineValueRange(50.0, 250.0),
+                initialViewport,
+                freezeRealtimeTick = false,
+            ),
+        )
+        // Every viewport move adopts its newly calculated range immediately.
+        assertEquals(
+            KlineValueRange(50.0, 150.0),
+            rangeRef.resolve(
+                KlineValueRange(50.0, 150.0),
+                movedViewport,
+                freezeRealtimeTick = false,
+            ),
+        )
+        assertEquals(
+            KlineValueRange(75.0, 250.0),
+            rangeRef.resolve(
+                KlineValueRange(75.0, 250.0),
+                movedAgainViewport,
+                freezeRealtimeTick = false,
+            ),
+        )
+
+        rangeRef.end(token)
+        assertEquals(
+            KlineValueRange(75.0, 250.0),
+            rangeRef.resolve(
+                KlineValueRange(75.0, 250.0),
+                movedAgainViewport,
+                freezeRealtimeTick = false,
+            ),
+        )
+        assertEquals(
+            KlineValueRange(80.0, 220.0),
+            rangeRef.resolve(
+                KlineValueRange(80.0, 220.0),
+                movedAgainViewport,
+                freezeRealtimeTick = false,
+            ),
+        )
     }
 
     @Test

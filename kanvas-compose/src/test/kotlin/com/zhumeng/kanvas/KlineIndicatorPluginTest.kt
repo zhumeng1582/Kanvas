@@ -29,6 +29,33 @@ import kotlin.test.assertTrue
 
 class KlineIndicatorPluginTest {
     @Test
+    fun `scoped plugin renderer preserves cache policy`() {
+        val renderer = object : KlineIndicatorRenderer {
+            override val cachePolicy = KlineIndicatorCachePolicy.ImmutableInputs
+
+            override fun supports(
+                definition: IndicatorDefinition,
+                output: IndicatorOutput?,
+            ): Boolean = true
+
+            override fun draw(scope: DrawScope, context: KlineIndicatorDrawContext) = Unit
+        }
+        val plugin = object : KlineIndicatorPlugin<KlineEmptyIndicatorPluginConfig> {
+            override val key = IndicatorKey.direct("cacheable")
+            override val defaultConfig = KlineEmptyIndicatorPluginConfig
+            override fun createDefinition(config: KlineEmptyIndicatorPluginConfig) =
+                IndicatorDefinition(key = key)
+            override fun createRenderer(): KlineIndicatorRenderer = renderer
+        }
+
+        val resolved = KlineIndicatorPluginCatalog.of(plugin.bind())
+            .createRendererRegistry()
+            .resolve(plugin.bind().definition, output = null)
+
+        assertEquals(KlineIndicatorCachePolicy.ImmutableInputs, resolved?.cachePolicy)
+    }
+
+    @Test
     fun `native binding stores typed config and creates MA definition`() {
         val plugin = KlineMovingAverageIndicatorPlugin(id = "ma", label = "Moving Average")
         val config = KlineMovingAverageIndicatorConfig(
@@ -54,9 +81,69 @@ class KlineIndicatorPluginTest {
     }
 
     @Test
+    fun `scoped MA renderer preserves prepared line capability`() {
+        val binding = KlineMovingAverageIndicatorPlugin().bind()
+        val scopedRenderer = assertNotNull(
+            KlineIndicatorPluginCatalog.of(binding)
+                .createRendererRegistry()
+                .resolve(binding.definition, output = null),
+        )
+
+        assertSame(
+            KlineComputedLineIndicatorRenderer,
+            scopedRenderer.builtInComputedLineRendererOrNull(),
+        )
+    }
+
+    @Test
     fun `indicator line style rejects invalid widths`() {
         assertFailsWith<IllegalArgumentException> { KlineIndicatorLineStyle(widthPx = 0f) }
         assertFailsWith<IllegalArgumentException> { KlineIndicatorLineStyle(widthPx = Float.NaN) }
+    }
+
+    @Test
+    fun `binding snapshots bundled mutable style lists`() {
+        val styles = mutableListOf(KlineIndicatorLineStyle(Color.Yellow, 2f))
+        val config = KlineSinglePeriodIndicatorConfig(
+            period = 12,
+            placement = IndicatorPlacement.Main,
+            lineStyles = styles,
+        )
+        val binding = KlineEmaIndicatorPlugin(period = 12).bind(config)
+
+        styles += KlineIndicatorLineStyle(Color.Magenta, 3f)
+
+        assertEquals(
+            listOf(KlineIndicatorLineStyle(Color.Yellow, 2f)),
+            binding.definition.requirePluginConfig<KlineSinglePeriodIndicatorConfig>().lineStyles,
+        )
+    }
+
+    @Test
+    fun `RSI config has structural identity and defensive collections`() {
+        val periods = mutableListOf(6, 14)
+        val styles = mutableListOf(KlineIndicatorLineStyle(Color.Yellow, 2f))
+        val config = KlineRsiIndicatorConfig(periods = periods, lineStyles = styles)
+
+        periods += 24
+        styles += KlineIndicatorLineStyle(Color.Magenta, 3f)
+
+        assertEquals(listOf(6, 14), config.periods)
+        assertEquals(listOf(KlineIndicatorLineStyle(Color.Yellow, 2f)), config.lineStyles)
+        assertEquals(
+            config,
+            KlineRsiIndicatorConfig(
+                periods = listOf(6, 14),
+                lineStyles = listOf(KlineIndicatorLineStyle(Color.Yellow, 2f)),
+            ),
+        )
+        assertEquals(
+            config.hashCode(),
+            KlineRsiIndicatorConfig(
+                periods = listOf(6, 14),
+                lineStyles = listOf(KlineIndicatorLineStyle(Color.Yellow, 2f)),
+            ).hashCode(),
+        )
     }
 
     @Test

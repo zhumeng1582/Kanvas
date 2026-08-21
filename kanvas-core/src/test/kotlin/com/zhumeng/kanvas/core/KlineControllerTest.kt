@@ -208,6 +208,55 @@ class KlineControllerTest {
     }
 
     @Test
+    fun `prepared load more commits the exact series without rebuilding it`() = runBlocking {
+        val controller = KlineController()
+        val selectedSpec = spec("BTC-USDT")
+        controller.select(selectedSpec)
+        controller.replaceAll(selectedSpec, listOf(candle(300L), candle(200L), candle(100L)))
+        val event = async(start = CoroutineStart.UNDISPATCHED) { controller.events.first() }
+        assertTrue(controller.requestLoadMore())
+        val request = assertIs<KlineEvent.LoadMore>(event.await())
+        val source = controller.state.value.series
+        val prepared = source.appendOlder(listOf(candle(50L), candle(0L))).series
+
+        val result = controller.completeLoadMorePrepared(
+            requestId = request.requestId,
+            sourceSeries = source,
+            preparedSeries = prepared,
+            hasMoreOlder = false,
+        )
+
+        assertEquals(KlineDataDisposition.Applied, result.disposition)
+        assertTrue(controller.state.value.series === prepared)
+        assertEquals(listOf(300L, 200L, 100L, 50L, 0L), controller.state.value.series.candles.map { it.timestampMillis })
+        assertFalse(controller.state.value.canLoadMoreOlder)
+    }
+
+    @Test
+    fun `prepared load more rejects a candidate after realtime source changes`() = runBlocking {
+        val controller = KlineController()
+        val selectedSpec = spec("BTC-USDT")
+        controller.select(selectedSpec)
+        controller.replaceAll(selectedSpec, listOf(candle(300L), candle(200L), candle(100L)))
+        val event = async(start = CoroutineStart.UNDISPATCHED) { controller.events.first() }
+        assertTrue(controller.requestLoadMore())
+        val request = assertIs<KlineEvent.LoadMore>(event.await())
+        val staleSource = controller.state.value.series
+        val prepared = staleSource.appendOlder(listOf(candle(50L))).series
+        controller.updateLatest(selectedSpec, candle(300L).copy(close = 2.0))
+
+        val result = controller.completeLoadMorePrepared(
+            requestId = request.requestId,
+            sourceSeries = staleSource,
+            preparedSeries = prepared,
+        )
+
+        assertEquals(KlineDataDisposition.IgnoredStalePreparedData, result.disposition)
+        assertEquals(request.requestId, controller.state.value.loadMoreRequestId)
+        assertEquals(3, controller.state.value.series.size)
+    }
+
+    @Test
     fun `load more token rejects stale completion and records failure and exhaustion`() = runBlocking {
         val controller = KlineController()
         val spec = spec("BTC-USDT")

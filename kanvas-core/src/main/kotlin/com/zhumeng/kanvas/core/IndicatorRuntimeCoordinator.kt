@@ -163,7 +163,7 @@ class IndicatorRuntimeCoordinator(
                     if (!forceRefresh &&
                         previousForCalculation?.matches(capturedRegistry) == true &&
                         previousForCalculation.sourceRevision == capturedRevision &&
-                        previousForCalculation.series.candles == input.chart.series.candles
+                        previousForCalculation.series === input.chart.series
                     ) {
                         return@collectLatest
                     }
@@ -178,9 +178,14 @@ class IndicatorRuntimeCoordinator(
                             sourceRevision = capturedRevision,
                         )
                         synchronized(resultLock) {
-                            previousResult = rebased
-                            if (mutableRenderState.value == null) mutableRenderState.value = rebased
-                            mutableState.value = rebased
+                            // A cancelled collector can still resume after a
+                            // non-cooperative calculator. Validate at the
+                            // publication lock, not only before entering it.
+                            if (rebased.matches(controller.state.value, registry.snapshot())) {
+                                previousResult = rebased
+                                if (mutableRenderState.value == null) mutableRenderState.value = rebased
+                                mutableState.value = rebased
+                            }
                         }
                         return@collectLatest
                     }
@@ -200,9 +205,11 @@ class IndicatorRuntimeCoordinator(
                     if (!calculated.matches(registry.snapshot())) return@collectLatest
 
                     synchronized(resultLock) {
-                        previousResult = calculated
-                        mutableRenderState.value = calculated
-                        mutableState.value = calculated
+                        if (calculated.matches(controller.state.value, registry.snapshot())) {
+                            previousResult = calculated
+                            mutableRenderState.value = calculated
+                            mutableState.value = calculated
+                        }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -231,8 +238,9 @@ class IndicatorRuntimeCoordinator(
      * new candle page for one or more frames before its indicator geometry is
      * ready.
      *
-     * The returned snapshot is not published automatically. After committing
-     * the matching controller state, call [publishPrepared] immediately.
+     * The returned snapshot is not published automatically. Commit the exact
+     * [series] through [KlineController.completeLoadMorePrepared], then call
+     * [publishPrepared] immediately.
      */
     suspend fun calculateAhead(
         series: KlineSeries,
@@ -257,8 +265,8 @@ class IndicatorRuntimeCoordinator(
      * input and registry generation now match the current chart state.
      */
     fun publishPrepared(snapshot: IndicatorRuntimeSnapshot): Boolean {
-        if (!snapshot.matches(controller.state.value, registry.snapshot())) return false
         synchronized(resultLock) {
+            if (!snapshot.matches(controller.state.value, registry.snapshot())) return false
             previousResult = snapshot
             mutableError.value = null
             mutableRenderState.value = snapshot

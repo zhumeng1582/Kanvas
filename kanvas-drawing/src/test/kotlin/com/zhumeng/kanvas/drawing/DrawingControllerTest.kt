@@ -74,6 +74,25 @@ class DrawingControllerTest {
     }
 
     @Test
+    fun `offscreen built in overlays are culled before hit testing`() {
+        val horizontal = DrawingOverlay(
+            symbol = "BTC-USDT",
+            type = DrawingTypeDescriptor.HorizontalLine,
+            points = listOf(DrawingPoint(5L, 100.0)),
+        )
+        val tool = HorizontalLineDrawingTool()
+
+        assertFalse(tool.isVisible(horizontal, space))
+        assertTrue(
+            tool.isVisible(
+                horizontal.copy(points = listOf(DrawingPoint(5L, 20.5))),
+                space,
+                marginPx = 3f,
+            ),
+        )
+    }
+
+    @Test
     fun `drag mutation publishes overlay and pointer together`() {
         val controller = DrawingController()
         controller.switchSymbol("BTC-USDT")

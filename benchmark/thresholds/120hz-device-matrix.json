@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "strict-120hz": {
+      "refreshRateHz": 120,
+      "dataSetCandles": 100000,
+      "requiredScenarios": ["pan", "pinch", "cross"],
+      "thresholds": {
+        "frameDurationCpuMsP95": 8.33,
+        "frameDurationCpuMsP99": 8.33,
+        "frameOverrunMsP95": 0.0,
+        "frameOverrunMsP99": 0.0
+      }
+    }
+  },
+  "deviceMatrix": [
+    {
+      "id": "qualcomm-flagship-120",
+      "runnerLabel": "android-perf-qualcomm-flagship-120",
+      "profile": "strict-120hz",
+      "notes": "Current reference class; includes Xiaomi 23127PN0CC."
+    },
+    {
+      "id": "qualcomm-mainstream-120",
+      "runnerLabel": "android-perf-qualcomm-mainstream-120",
+      "profile": "strict-120hz",
+      "notes": "Mainstream Qualcomm target with a native 120Hz panel."
+    },
+    {
+      "id": "mediatek-mainstream-120",
+      "runnerLabel": "android-perf-mediatek-mainstream-120",
+      "profile": "strict-120hz",
+      "notes": "Mainstream MediaTek target with a native 120Hz panel."
+    }
+  ]
+}

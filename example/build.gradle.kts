@@ -16,6 +16,17 @@ android {
         versionName = "0.1.0"
     }
 
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = false

@@ -194,9 +194,10 @@ class KlineRsiIndicatorConfig(
     val upper: Double = 70.0,
     val lower: Double = 30.0,
     val placement: IndicatorPlacement = IndicatorPlacement.Sub("rsi"),
-    val lineStyles: List<KlineIndicatorLineStyle> = emptyList(),
+    lineStyles: List<KlineIndicatorLineStyle> = emptyList(),
 ) : KlineIndicatorPluginConfig {
     private val periodStorage = periods.toList()
+    private val lineStyleStorage = lineStyles.toList()
 
     init {
         require(periodStorage.isNotEmpty() && periodStorage.all { it > 0 })
@@ -205,11 +206,33 @@ class KlineRsiIndicatorConfig(
     }
 
     val periods: List<Int> get() = periodStorage.toList()
+    val lineStyles: List<KlineIndicatorLineStyle> get() = lineStyleStorage.toList()
     override val parameters: IndicatorParameters = IndicatorParameters.of(
         "periods" to periodStorage.joinToString(","),
         "upper" to upper.toString(),
         "lower" to lower.toString(),
     )
+
+    override fun equals(other: Any?): Boolean =
+        other is KlineRsiIndicatorConfig &&
+            periodStorage == other.periodStorage &&
+            upper == other.upper &&
+            lower == other.lower &&
+            placement == other.placement &&
+            lineStyleStorage == other.lineStyleStorage
+
+    override fun hashCode(): Int {
+        var result = periodStorage.hashCode()
+        result = 31 * result + upper.hashCode()
+        result = 31 * result + lower.hashCode()
+        result = 31 * result + placement.hashCode()
+        result = 31 * result + lineStyleStorage.hashCode()
+        return result
+    }
+
+    override fun toString(): String =
+        "KlineRsiIndicatorConfig(periods=$periodStorage, upper=$upper, lower=$lower, " +
+            "placement=$placement, lineStyles=$lineStyleStorage)"
 }
 
 class KlineRsiIndicatorPlugin(

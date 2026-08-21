@@ -79,6 +79,21 @@ class KlineSeriesTest {
     }
 
     @Test
+    fun `latest-only identity is retained only for same timestamp replacements`() {
+        val initial = KlineSeries.of(listOf(candle(300L), candle(200L), candle(100L)))
+        val replaced = initial.updateLatest(candle(300L, close = 30.0)).series
+        val replacedAgain = replaced.updateLatest(candle(300L, close = 31.0)).series
+        val prepended = replacedAgain.updateLatest(candle(400L)).series
+        val rebuilt = KlineSeries.of(replacedAgain.candles)
+
+        assertTrue(replaced.differsOnlyAtLatestFrom(initial))
+        assertTrue(replacedAgain.differsOnlyAtLatestFrom(replaced))
+        assertTrue(replacedAgain.differsOnlyAtLatestFrom(initial))
+        assertTrue(!prepended.differsOnlyAtLatestFrom(replacedAgain))
+        assertTrue(!rebuilt.differsOnlyAtLatestFrom(replacedAgain))
+    }
+
+    @Test
     fun `many edge updates preserve random access and binary timestamp lookup`() {
         var series = KlineSeries.of((100L downTo 1L).map(::candle))
         repeat(1_000) { offset ->

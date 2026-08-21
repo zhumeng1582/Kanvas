@@ -240,8 +240,17 @@ class KlineSeries private constructor(
         }
     }
 
-    /** True when both snapshots share all historical candles and only index zero may differ. */
-    internal fun differsOnlyAtLatestFrom(previous: KlineSeries?): Boolean {
+    /**
+     * Returns true when this snapshot and [previous] share every historical
+     * candle and only index zero may differ.
+     *
+     * This is an O(1) identity check for snapshots produced by
+     * [updateLatest]. Renderers can use it to retain a recorded historical
+     * layer while repainting only the still-open newest candle. It deliberately
+     * returns false for structurally rebuilt series, even if their values happen
+     * to compare equal, so a cache can never reuse an uncertain history.
+     */
+    fun differsOnlyAtLatestFrom(previous: KlineSeries?): Boolean {
         if (previous == null || size != previous.size || size == 0) return false
         if (candles === previous.candles) return true
         val currentTail = (candles as? LatestReplacedCandleList)?.tailSource ?: candles

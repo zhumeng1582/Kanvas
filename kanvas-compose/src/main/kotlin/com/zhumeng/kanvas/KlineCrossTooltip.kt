@@ -8,7 +8,6 @@ package com.zhumeng.kanvas
 import androidx.compose.ui.text.TextStyle
 import com.zhumeng.kanvas.core.KlineCandle
 import com.zhumeng.kanvas.core.KlineSpec
-import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -134,14 +133,10 @@ fun defaultKlineCrossTooltipItems(
 }
 
 internal fun formatKlineTooltipPrice(value: Double, precision: Int): String =
-    if (value.isFinite()) {
-        String.format(Locale.US, "%.${precision.coerceIn(0, 12)}f", value)
-    } else {
-        "—"
-    }
+    if (value.isFinite()) formatPrice(value, precision) else "—"
 
 internal fun formatKlineTooltipPercent(value: Double): String =
-    if (value.isFinite()) String.format(Locale.US, "%.2f%%", value * 100.0) else "—"
+    if (value.isFinite()) "${formatPrice(value * 100.0, 2)}%" else "—"
 
 /** Compact native amount formatting; apps may replace it with a provider. */
 internal fun formatKlineTooltipAmount(value: Double): String {
@@ -154,5 +149,5 @@ internal fun formatKlineTooltipAmount(value: Double): String {
         magnitude >= 1_000.0 -> value / 1_000.0 to "K"
         else -> value to ""
     }
-    return String.format(Locale.US, "%.2f%s", scaled, suffix)
+    return formatPrice(scaled, 2) + suffix
 }

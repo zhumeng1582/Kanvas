@@ -16,6 +16,8 @@ boundaries and runtime data flow. For high-frequency feeds, see
 [realtime candles, indicator refresh, and range stability](docs/realtime-updates.md).
 The example indicator picker and parameter editor are described in
 [indicator selection and settings](docs/indicator-settings.md).
+Device performance gates and the custom main-chart renderer SPI are documented in
+[the Chinese performance guide](docs/PERFORMANCE.zh-CN.md).
 
 Download the installable [Kanvas example APK v0.1.0](docs/downloads/kanvas-example-0.1.0.apk).
 It is a release build signed with an Android debug certificate for demonstration

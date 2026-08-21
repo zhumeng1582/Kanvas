@@ -4,6 +4,9 @@
  */
 
 package com.zhumeng.kanvas
+
+import android.graphics.Paint as AndroidPaint
+import android.graphics.Path as AndroidPath
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.magnifier
@@ -48,9 +51,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -84,6 +90,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.zhumeng.kanvas.core.IndexRange
+import com.zhumeng.kanvas.core.IndicatorColumn
 import com.zhumeng.kanvas.core.IndicatorDefinition
 import com.zhumeng.kanvas.core.IndicatorOutput
 import com.zhumeng.kanvas.core.IndicatorRegistrySnapshot
@@ -106,6 +113,9 @@ import com.zhumeng.kanvas.drawing.DrawingPoint
 import com.zhumeng.kanvas.drawing.DrawingRenderConfig
 import com.zhumeng.kanvas.drawing.DrawingState
 import com.zhumeng.kanvas.drawing.DrawingTextAreaStyle
+import java.math.RoundingMode
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -309,6 +319,19 @@ internal fun DrawScope.drawYAxisTicks(
     textArea: KlineTextAreaRenderConfig = KlineTextAreaRenderConfig(),
 ) {
     if (!config.horizontalShow || !config.showYAxisTicks) return
+    if (
+        textArea.supportsNativeBatchedYAxisTicks() &&
+        drawNativeBatchedYAxisTicks(
+            plotRect = plotRect,
+            style = style,
+            config = config,
+            range = range,
+            precision = precision,
+            includeTopAxisLabel = includeTopAxisLabel,
+            includeBottomAxisLabel = includeBottomAxisLabel,
+            textArea = textArea,
+        )
+    ) return
     for (step in 0..config.horizontalCount) {
         if ((step == 0 && !includeTopAxisLabel) ||
             (step == config.horizontalCount && !includeBottomAxisLabel)
@@ -343,8 +366,18 @@ internal fun DrawScope.drawYAxisTick(
     precision: Int,
     textArea: KlineTextAreaRenderConfig = KlineTextAreaRenderConfig(),
 ) {
+    val text = formatPrice(value, precision)
+    if (
+        textArea.supportsNativeSimpleTextArea() &&
+        drawNativeSimpleYAxisTick(
+            text = text,
+            anchor = Offset(plotRect.right, y),
+            config = textArea,
+            fallbackTextColor = style.ticksTextColor,
+        )
+    ) return
     drawKlineTextArea(
-        text = formatPrice(value, precision),
+        text = text,
         anchor = Offset(plotRect.right, y),
         horizontalAnchor = KlineTextAreaHorizontalAnchor.End,
         verticalAnchor = KlineTextAreaVerticalAnchor.Center,
@@ -354,6 +387,310 @@ internal fun DrawScope.drawYAxisTick(
     )
 }
 
+internal fun KlineTextAreaRenderConfig.supportsNativeSimpleTextArea(): Boolean =
+    fontFamily == null &&
+        fontStyle == null &&
+        fontWeight == null &&
+        lineHeightMultiplier == null &&
+        textBaseline == null &&
+        textDecoration == null &&
+        decorationColor == null &&
+        decorationStyle == null &&
+        strutFontFamily == null &&
+        strutHeightMultiplier == null &&
+        strutLeading == null &&
+        strutFontWeight == null &&
+        strutFontStyle == null &&
+        !forceStrutHeight &&
+        textAlign != KlineTextAlign.Justify &&
+        maxLines == 1
+
+internal fun KlineTextAreaRenderConfig.supportsNativeBatchedYAxisTicks(): Boolean =
+    supportsNativeSimpleTextArea() &&
+        textWidthPx == null &&
+        minWidthPx == null &&
+        maxWidthPx == null &&
+        backgroundColor == null &&
+        (borderWidthPx <= 0f || borderColor == null)
+
+private val klineSimpleAxisTextPaint = object : ThreadLocal<AndroidPaint>() {
+    override fun initialValue(): AndroidPaint = AndroidPaint(
+        AndroidPaint.ANTI_ALIAS_FLAG or AndroidPaint.SUBPIXEL_TEXT_FLAG,
+    )
+}
+
+private data class KlineNativeSimpleTextMetrics(
+    val naturalWidth: Float,
+    val contentWidth: Float,
+    val fontTop: Float,
+    val fontBottom: Float,
+    val paddingLeft: Float,
+    val paddingRight: Float,
+    val paddingTop: Float,
+    val paddingBottom: Float,
+) {
+    val areaWidth: Float get() = paddingLeft + contentWidth + paddingRight
+    val areaHeight: Float get() = paddingTop + fontBottom - fontTop + paddingBottom
+}
+
+private fun DrawScope.configureNativeSimpleTextPaint(
+    config: KlineTextAreaRenderConfig,
+    fallbackTextColor: Color,
+): AndroidPaint = checkNotNull(klineSimpleAxisTextPaint.get()).apply {
+    color = (config.textColor ?: fallbackTextColor).toArgb()
+    textSize = with(this@configureNativeSimpleTextPaint) { config.fontSizeSp.sp.toPx() }
+    style = AndroidPaint.Style.FILL
+    textAlign = AndroidPaint.Align.LEFT
+    typeface = android.graphics.Typeface.DEFAULT
+    isFakeBoldText = false
+    textSkewX = 0f
+}
+
+private fun DrawScope.drawNativeBatchedYAxisTicks(
+    plotRect: Rect,
+    style: KlineChartStyle,
+    config: KlineGridRenderConfig,
+    range: KlineValueRange,
+    precision: Int,
+    includeTopAxisLabel: Boolean,
+    includeBottomAxisLabel: Boolean,
+    textArea: KlineTextAreaRenderConfig,
+): Boolean {
+    val paint = configureNativeSimpleTextPaint(textArea, style.ticksTextColor)
+    val fontMetrics = paint.fontMetrics
+    val padding = textArea.padding
+    val paddingRight = logicalPx(padding.rightPx)
+    val baselineCenterOffset =
+        (logicalPx(padding.topPx) - logicalPx(padding.bottomPx) -
+            fontMetrics.top - fontMetrics.bottom) / 2f
+    val nativeCanvas = drawContext.canvas.nativeCanvas
+    for (step in 0..config.horizontalCount) {
+        if ((step == 0 && !includeTopAxisLabel) ||
+            (step == config.horizontalCount && !includeBottomAxisLabel)
+        ) {
+            continue
+        }
+        val fraction = step / config.horizontalCount.toFloat()
+        val y = plotRect.top + plotRect.height * fraction
+        val tickY = when (step) {
+            0 -> plotRect.top + logicalPx(8f)
+            config.horizontalCount -> plotRect.bottom - logicalPx(8f)
+            else -> y
+        }
+        val text = formatPrice(range.maximum - range.span * fraction, precision)
+        nativeCanvas.drawText(
+            text,
+            plotRect.right - paddingRight - paint.measureText(text),
+            tickY + baselineCenterOffset,
+            paint,
+        )
+    }
+    return true
+}
+
+private fun DrawScope.resolveNativeSimpleTextMetrics(
+    text: String,
+    config: KlineTextAreaRenderConfig,
+    fallbackTextColor: Color,
+    forcedContentWidth: Float? = null,
+): KlineNativeSimpleTextMetrics? {
+    val paint = configureNativeSimpleTextPaint(config, fallbackTextColor)
+    val fontMetrics = paint.fontMetrics
+    val naturalWidth = paint.measureText(text)
+    val contentWidth = forcedContentWidth ?: config.resolveContentWidth(naturalWidth, density)
+    // Native Canvas has no equivalent for Compose's configurable ellipsis.
+    // Keep exact fallback semantics whenever the text would need truncation.
+    if (naturalWidth > contentWidth) return null
+    return KlineNativeSimpleTextMetrics(
+        naturalWidth = naturalWidth,
+        contentWidth = contentWidth,
+        fontTop = fontMetrics.top,
+        fontBottom = fontMetrics.bottom,
+        paddingLeft = logicalPx(config.padding.leftPx),
+        paddingRight = logicalPx(config.padding.rightPx),
+        paddingTop = logicalPx(config.padding.topPx),
+        paddingBottom = logicalPx(config.padding.bottomPx),
+    )
+}
+
+private fun DrawScope.drawNativeSimpleTextInRect(
+    text: String,
+    rect: Rect,
+    config: KlineTextAreaRenderConfig,
+    fallbackTextColor: Color,
+    metrics: KlineNativeSimpleTextMetrics,
+) {
+    val paint = configureNativeSimpleTextPaint(config, fallbackTextColor)
+    val textOffsetX = when (config.textAlign) {
+        KlineTextAlign.Center -> (metrics.contentWidth - metrics.naturalWidth) / 2f
+        KlineTextAlign.End,
+        KlineTextAlign.Right,
+        -> metrics.contentWidth - metrics.naturalWidth
+        KlineTextAlign.Start,
+        KlineTextAlign.Left,
+        KlineTextAlign.Justify,
+        -> 0f
+    }
+    drawContext.canvas.nativeCanvas.drawText(
+        text,
+        rect.left + metrics.paddingLeft + textOffsetX,
+        rect.top + metrics.paddingTop - metrics.fontTop,
+        paint,
+    )
+}
+
+private fun DrawScope.drawNativeSimpleCenteredTextArea(
+    text: String,
+    center: Offset,
+    config: KlineTextAreaRenderConfig,
+    fallbackTextColor: Color,
+    paint: AndroidPaint,
+    fontMetrics: AndroidPaint.FontMetrics,
+): Boolean {
+    val naturalWidth = paint.measureText(text)
+    val contentWidth = config.resolveContentWidth(naturalWidth, density)
+    if (naturalWidth > contentWidth) return false
+    val paddingLeft = logicalPx(config.padding.leftPx)
+    val paddingRight = logicalPx(config.padding.rightPx)
+    val paddingTop = logicalPx(config.padding.topPx)
+    val paddingBottom = logicalPx(config.padding.bottomPx)
+    val width = paddingLeft + contentWidth + paddingRight
+    val height = paddingTop + fontMetrics.bottom - fontMetrics.top + paddingBottom
+    val rect = Rect(
+        left = center.x - width / 2f,
+        top = center.y - height / 2f,
+        right = center.x + width / 2f,
+        bottom = center.y + height / 2f,
+    )
+    drawKlineTextAreaBackground(
+        rect = rect,
+        config = config,
+        fallbackBackground = null,
+        fallbackBorder = null,
+    )
+    val textOffsetX = when (config.textAlign) {
+        KlineTextAlign.Center -> (contentWidth - naturalWidth) / 2f
+        KlineTextAlign.End,
+        KlineTextAlign.Right,
+        -> contentWidth - naturalWidth
+        KlineTextAlign.Start,
+        KlineTextAlign.Left,
+        KlineTextAlign.Justify,
+        -> 0f
+    }
+    paint.color = (config.textColor ?: fallbackTextColor).toArgb()
+    drawContext.canvas.nativeCanvas.drawText(
+        text,
+        rect.left + paddingLeft + textOffsetX,
+        rect.top + paddingTop - fontMetrics.top,
+        paint,
+    )
+    return true
+}
+
+private fun DrawScope.drawNativeSimpleYAxisTick(
+    text: String,
+    anchor: Offset,
+    config: KlineTextAreaRenderConfig,
+    fallbackTextColor: Color,
+): Boolean = drawNativeSimpleTextArea(
+        text = text,
+        anchor = anchor,
+        horizontalAnchor = KlineTextAreaHorizontalAnchor.End,
+        verticalAnchor = KlineTextAreaVerticalAnchor.Center,
+        config = config,
+        fallbackTextColor = fallbackTextColor,
+        drawableRect = null,
+    ) != null
+
+private fun DrawScope.drawNativeSimpleTextArea(
+    text: String,
+    anchor: Offset,
+    horizontalAnchor: KlineTextAreaHorizontalAnchor,
+    verticalAnchor: KlineTextAreaVerticalAnchor,
+    config: KlineTextAreaRenderConfig,
+    fallbackTextColor: Color,
+    drawableRect: Rect?,
+    fallbackBackground: Color? = null,
+    fallbackBorder: Color? = null,
+): Rect? {
+    val metrics = resolveNativeSimpleTextMetrics(text, config, fallbackTextColor) ?: return null
+    val width = metrics.areaWidth
+    val height = metrics.areaHeight
+    var left = when (horizontalAnchor) {
+        KlineTextAreaHorizontalAnchor.Start -> anchor.x
+        KlineTextAreaHorizontalAnchor.Center -> anchor.x - width / 2f
+        KlineTextAreaHorizontalAnchor.End -> anchor.x - width
+    }
+    var top = when (verticalAnchor) {
+        KlineTextAreaVerticalAnchor.Top -> anchor.y
+        KlineTextAreaVerticalAnchor.Center -> anchor.y - height / 2f
+        KlineTextAreaVerticalAnchor.Bottom -> anchor.y - height
+    }
+    drawableRect?.let { bounds ->
+        left = left.coerceIn(bounds.left, (bounds.right - width).coerceAtLeast(bounds.left))
+        top = top.coerceIn(bounds.top, (bounds.bottom - height).coerceAtLeast(bounds.top))
+    }
+    val rect = Rect(left, top, left + width, top + height)
+    drawKlineTextAreaBackground(
+        rect = rect,
+        config = config,
+        fallbackBackground = fallbackBackground,
+        fallbackBorder = fallbackBorder,
+    )
+    drawNativeSimpleTextInRect(
+        text,
+        rect,
+        config,
+        fallbackTextColor,
+        metrics,
+    )
+    return rect
+}
+
+private data class KlineConfiguredLinePaintKey(
+    val stroke: KlineStrokeStyle,
+    val fallbackColor: androidx.compose.ui.graphics.Color,
+    val densityScale: Float,
+)
+
+private class KlineConfiguredLinePaintCache {
+    private val paints = object : LinkedHashMap<KlineConfiguredLinePaintKey, Paint>(16, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<KlineConfiguredLinePaintKey, Paint>?,
+        ): Boolean = size > 32
+    }
+
+    fun resolve(
+        stroke: KlineStrokeStyle,
+        fallbackColor: androidx.compose.ui.graphics.Color,
+        densityScale: Float,
+    ): Paint {
+        val key = KlineConfiguredLinePaintKey(stroke, fallbackColor, densityScale)
+        return paints.getOrPut(key) {
+            Paint().apply {
+                color = stroke.color ?: fallbackColor
+                strokeWidth = stroke.widthPx * densityScale
+                style = if (stroke.paintStyle == KlinePaintStyle.Fill) {
+                    PaintingStyle.Fill
+                } else {
+                    PaintingStyle.Stroke
+                }
+                blendMode = stroke.blendMode
+                isAntiAlias = stroke.isAntiAlias
+                pathEffect = stroke.dashPatternPx.takeIf { it.isNotEmpty() }?.let { pattern ->
+                    val scaled = FloatArray(pattern.size) { index -> pattern[index] * densityScale }
+                    PathEffect.dashPathEffect(scaled)
+                }
+            }
+        }
+    }
+}
+
+private val klineConfiguredLinePaintCache = object : ThreadLocal<KlineConfiguredLinePaintCache>() {
+    override fun initialValue(): KlineConfiguredLinePaintCache = KlineConfiguredLinePaintCache()
+}
+
 internal fun DrawScope.drawConfiguredLine(
     stroke: KlineStrokeStyle,
     fallbackColor: androidx.compose.ui.graphics.Color,
@@ -361,21 +698,11 @@ internal fun DrawScope.drawConfiguredLine(
     end: Offset,
 ) {
     if (stroke.widthPx <= 0f) return
-    val paint = Paint().apply {
-        color = stroke.color ?: fallbackColor
-        strokeWidth = logicalPx(stroke.widthPx)
-        style = if (stroke.paintStyle == KlinePaintStyle.Fill) {
-            PaintingStyle.Fill
-        } else {
-            PaintingStyle.Stroke
-        }
-        blendMode = stroke.blendMode
-        isAntiAlias = stroke.isAntiAlias
-        pathEffect = stroke.dashPatternPx.takeIf { it.isNotEmpty() }
-            ?.map(::logicalPx)
-            ?.toFloatArray()
-            ?.let(PathEffect::dashPathEffect)
-    }
+    val paint = checkNotNull(klineConfiguredLinePaintCache.get()).resolve(
+        stroke = stroke,
+        fallbackColor = fallbackColor,
+        densityScale = density,
+    )
     drawContext.canvas.drawLine(start, end, paint)
 }
 /** Converts a public logical-pixel value to Canvas pixels. */
@@ -389,6 +716,124 @@ internal fun KlinePanePadding.toCanvasPixels(densityScale: Float): KlinePanePadd
     bottomPx = bottomPx * densityScale,
 )
 
+private class KlineLineFloatBuffer(initialCapacity: Int = 128) {
+    private var values = FloatArray(initialCapacity)
+    var size: Int = 0
+        private set
+
+    fun reset() {
+        size = 0
+    }
+
+    fun add(x1: Float, y1: Float, x2: Float, y2: Float) {
+        val required = size + 4
+        if (required > values.size) {
+            values = values.copyOf(max(required, values.size * 2))
+        }
+        values[size] = x1
+        values[size + 1] = y1
+        values[size + 2] = x2
+        values[size + 3] = y2
+        size = required
+    }
+
+    fun draw(canvas: android.graphics.Canvas, paint: AndroidPaint) {
+        if (size > 0) canvas.drawLines(values, 0, size, paint)
+    }
+}
+
+private class KlineRectFloatBuffer(initialCapacity: Int = 128) {
+    private var values = FloatArray(initialCapacity)
+    var size: Int = 0
+        private set
+
+    fun reset() {
+        size = 0
+    }
+
+    fun add(left: Float, top: Float, right: Float, bottom: Float) {
+        val required = size + 4
+        if (required > values.size) {
+            values = values.copyOf(max(required, values.size * 2))
+        }
+        values[size] = left
+        values[size + 1] = top
+        values[size + 2] = right
+        values[size + 3] = bottom
+        size = required
+    }
+
+    fun draw(canvas: android.graphics.Canvas, paint: AndroidPaint) {
+        var offset = 0
+        while (offset < size) {
+            canvas.drawRect(
+                values[offset],
+                values[offset + 1],
+                values[offset + 2],
+                values[offset + 3],
+                paint,
+            )
+            offset += 4
+        }
+    }
+}
+
+private class KlineBarDrawBuffer {
+    val bullishLines = KlineLineFloatBuffer()
+    val bearishLines = KlineLineFloatBuffer()
+    val bullishFilledBodies = KlineRectFloatBuffer()
+    val bearishFilledBodies = KlineRectFloatBuffer()
+    val bullishHollowBodies = KlineRectFloatBuffer()
+    val bearishHollowBodies = KlineRectFloatBuffer()
+    val bullishPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
+    val bearishPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
+
+    fun reset() {
+        bullishLines.reset()
+        bearishLines.reset()
+        bullishFilledBodies.reset()
+        bearishFilledBodies.reset()
+        bullishHollowBodies.reset()
+        bearishHollowBodies.reset()
+    }
+}
+
+private val klineBarDrawBuffer = object : ThreadLocal<KlineBarDrawBuffer>() {
+    override fun initialValue(): KlineBarDrawBuffer = KlineBarDrawBuffer()
+}
+
+private class KlineVolumeDrawBuffer {
+    val bullishBars = KlineRectFloatBuffer()
+    val bearishBars = KlineRectFloatBuffer()
+    val bullishPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
+    val bearishPaint = AndroidPaint(AndroidPaint.ANTI_ALIAS_FLAG)
+    var hasBullishBars = false
+    var hasBearishBars = false
+
+    fun reset() {
+        bullishBars.reset()
+        bearishBars.reset()
+        hasBullishBars = false
+        hasBearishBars = false
+    }
+}
+
+private val klineVolumeDrawBuffer = object : ThreadLocal<KlineVolumeDrawBuffer>() {
+    override fun initialValue(): KlineVolumeDrawBuffer = KlineVolumeDrawBuffer()
+}
+
+private fun AndroidPaint.configureKlineBar(
+    colorArgb: Int,
+    paintStyle: AndroidPaint.Style,
+    widthPx: Float = 0f,
+) {
+    color = colorArgb
+    style = paintStyle
+    strokeWidth = widthPx
+    strokeCap = AndroidPaint.Cap.BUTT
+    strokeJoin = AndroidPaint.Join.MITER
+}
+
 internal fun DrawScope.drawBars(
     candles: List<KlineCandle>,
     range: IndexRange,
@@ -399,9 +844,11 @@ internal fun DrawScope.drawBars(
     style: KlineChartStyle,
     config: KlineCandleRenderConfig,
 ) {
+    if (range.isEmpty) return
     val bodyHalf = max(logicalPx(0.5f), viewport.candleHalfStepPx - viewport.candleSpacingPx)
     val strokeWidth = logicalPx(config.candleLineWidthPx)
     val hollowStrokeWidth = logicalPx(config.hollowBarBorderWidthPx)
+    val buffer = checkNotNull(klineBarDrawBuffer.get()).also(KlineBarDrawBuffer::reset)
     for (index in range.startInclusive until range.endExclusive) {
         val candle = candles[index]
         if (!candle.isRenderable) continue
@@ -411,31 +858,54 @@ internal fun DrawScope.drawBars(
         val openY = values.yFor(candle.open, plotRect)
         val closeY = values.yFor(candle.close, plotRect)
         val bullish = candle.close >= candle.open
-        val color = if (bullish) style.bullish else style.bearish
+        val lines = if (bullish) buffer.bullishLines else buffer.bearishLines
         if (chartStyle == KlineBarStyle.Ohlc) {
-            drawLine(color, Offset(centerX, highY), Offset(centerX, lowY), strokeWidth = strokeWidth)
-            drawLine(color, Offset(centerX - bodyHalf, openY), Offset(centerX, openY), strokeWidth = strokeWidth)
-            drawLine(color, Offset(centerX, closeY), Offset(centerX + bodyHalf, closeY), strokeWidth = strokeWidth)
+            lines.add(centerX, highY, centerX, lowY)
+            lines.add(centerX - bodyHalf, openY, centerX, openY)
+            lines.add(centerX, closeY, centerX + bodyHalf, closeY)
             continue
         }
-        drawLine(color, Offset(centerX, highY), Offset(centerX, lowY), strokeWidth = strokeWidth)
+        lines.add(centerX, highY, centerX, lowY)
         val top = min(openY, closeY)
         val bottom = max(openY, closeY)
-        val body = Rect(centerX - bodyHalf, top, centerX + bodyHalf, max(bottom, top + logicalPx(1f)))
         val hollow = chartStyle == KlineBarStyle.AllHollow ||
             (chartStyle == KlineBarStyle.UpHollow && bullish) ||
             (chartStyle == KlineBarStyle.DownHollow && !bullish)
-        if (hollow) {
-            drawRect(
-                color,
-                topLeft = body.topLeft,
-                size = body.size,
-                style = Stroke(width = hollowStrokeWidth),
-            )
+        val bodyPath = if (hollow) {
+            if (bullish) buffer.bullishHollowBodies else buffer.bearishHollowBodies
         } else {
-            drawRect(color, topLeft = body.topLeft, size = body.size)
+            if (bullish) buffer.bullishFilledBodies else buffer.bearishFilledBodies
         }
+        bodyPath.add(
+            centerX - bodyHalf,
+            top,
+            centerX + bodyHalf,
+            max(bottom, top + logicalPx(1f)),
+        )
     }
+    val canvas = drawContext.canvas.nativeCanvas
+    buffer.bullishPaint.configureKlineBar(style.bullish.toArgb(), AndroidPaint.Style.STROKE, strokeWidth)
+    buffer.bearishPaint.configureKlineBar(style.bearish.toArgb(), AndroidPaint.Style.STROKE, strokeWidth)
+    buffer.bullishLines.draw(canvas, buffer.bullishPaint)
+    buffer.bearishLines.draw(canvas, buffer.bearishPaint)
+    if (chartStyle == KlineBarStyle.Ohlc) return
+
+    buffer.bullishPaint.configureKlineBar(style.bullish.toArgb(), AndroidPaint.Style.FILL)
+    buffer.bearishPaint.configureKlineBar(style.bearish.toArgb(), AndroidPaint.Style.FILL)
+    buffer.bullishFilledBodies.draw(canvas, buffer.bullishPaint)
+    buffer.bearishFilledBodies.draw(canvas, buffer.bearishPaint)
+    buffer.bullishPaint.configureKlineBar(
+        style.bullish.toArgb(),
+        AndroidPaint.Style.STROKE,
+        hollowStrokeWidth,
+    )
+    buffer.bearishPaint.configureKlineBar(
+        style.bearish.toArgb(),
+        AndroidPaint.Style.STROKE,
+        hollowStrokeWidth,
+    )
+    buffer.bullishHollowBodies.draw(canvas, buffer.bullishPaint)
+    buffer.bearishHollowBodies.draw(canvas, buffer.bearishPaint)
 }
 
 internal fun DrawScope.drawOrderMarkers(
@@ -459,15 +929,32 @@ internal fun DrawScope.drawOrderMarkers(
         config = config,
         densityScale = densityScale,
     )
+    drawOrderMarkerPlacements(placements, config, densityScale)
+}
+
+internal fun DrawScope.drawOrderMarkerPlacements(
+    placements: List<KlineOrderMarkerPlacement>,
+    config: KlineOrderMarkerRenderConfig,
+    densityScale: Float,
+) {
     if (placements.isEmpty()) return
     val halfSize = config.sizePx.coerceAtLeast(1f) * densityScale / 2f
     val pointerHeight = config.pointerHeightPx.coerceAtLeast(0f) * densityScale
-    val buyText = textMeasurer.measure("B", style = TextStyle(color = config.textColor, fontSize = config.textSizeSp.sp))
-    val sellText = textMeasurer.measure("S", style = TextStyle(color = config.textColor, fontSize = config.textSizeSp.sp))
+    val textPaint = checkNotNull(klineSimpleAxisTextPaint.get()).apply {
+        color = config.textColor.toArgb()
+        textSize = with(this@drawOrderMarkerPlacements) { config.textSizeSp.sp.toPx() }
+        style = AndroidPaint.Style.FILL
+        textAlign = AndroidPaint.Align.CENTER
+        typeface = android.graphics.Typeface.DEFAULT
+        isFakeBoldText = false
+        textSkewX = 0f
+    }
+    val textBaselineOffset = -(textPaint.fontMetrics.ascent + textPaint.fontMetrics.descent) / 2f
+    val nativeCanvas = drawContext.canvas.nativeCanvas
     val pointer = Path()
     placements.forEach { placement ->
         val isBuy = placement.marker.side == KlineOrderSide.Buy
-        val text = if (isBuy) buyText else sellText
+        val text = if (isBuy) "B" else "S"
         val color = if (isBuy) config.buyColor else config.sellColor
         val squareTop = placement.center.y - halfSize
         val squareBottom = placement.center.y + halfSize
@@ -487,12 +974,11 @@ internal fun DrawScope.drawOrderMarkers(
             topLeft = Offset(placement.center.x - halfSize, squareTop),
             size = Size(halfSize * 2f, halfSize * 2f),
         )
-        drawText(
-            textLayoutResult = text,
-            topLeft = Offset(
-                placement.center.x - text.size.width / 2f,
-                placement.center.y - text.size.height / 2f,
-            ),
+        nativeCanvas.drawText(
+            text,
+            placement.center.x,
+            placement.center.y + textBaselineOffset,
+            textPaint,
         )
     }
 }
@@ -647,6 +1133,36 @@ internal data class KlinePreparedIndicatorLine(
     val widthPx: Float,
 )
 
+/** Keeps each HWUI path mask small enough to remain reusable across interaction frames. */
+internal const val KlineIndicatorSegmentsPerPath = 8
+
+internal fun resolveKlineIndicatorPathRanges(
+    column: IndicatorColumn,
+    range: IndexRange,
+): List<IndexRange> = buildList {
+    fun appendRun(startInclusive: Int, endExclusive: Int) {
+        var chunkStart = startInclusive
+        while (chunkStart + 1 < endExclusive) {
+            val chunkEnd = min(
+                endExclusive,
+                chunkStart + KlineIndicatorSegmentsPerPath + 1,
+            )
+            add(IndexRange(chunkStart, chunkEnd))
+            chunkStart = chunkEnd - 1
+        }
+    }
+
+    var runStart = -1
+    for (index in range.startInclusive..range.endExclusive) {
+        val finite = index < range.endExclusive && column[index].isFinite()
+        if (finite && runStart < 0) runStart = index
+        if (!finite && runStart >= 0) {
+            appendRun(runStart, index)
+            runStart = -1
+        }
+    }
+}
+
 internal fun prepareIndicatorLines(
     outputs: List<IndicatorOutput>,
     range: IndexRange,
@@ -670,26 +1186,22 @@ internal fun prepareIndicatorLines(
                     colorIndex++
                     continue
                 }
-                val path = Path()
-                var hasPoint = false
-                for (index in range.startInclusive until range.endExclusive) {
-                    val value = column[index]
-                    if (!value.isFinite()) {
-                        hasPoint = false
-                        continue
+                val color = configuredStyle?.color ?: indicatorColors[colorIndex % indicatorColors.size]
+                val widthPx = configuredStyle?.widthPx ?: 1.25f
+                resolveKlineIndicatorPathRanges(column, range).forEach { pathRange ->
+                    val path = Path()
+                    for (index in pathRange.startInclusive until pathRange.endExclusive) {
+                        val x = viewport.xForIndex(plotRect.right, index.toDouble()) -
+                            viewport.candleHalfStepPx
+                        val y = values.yFor(column[index], plotRect)
+                        if (index == pathRange.startInclusive) {
+                            path.moveTo(x, y)
+                        } else {
+                            path.lineTo(x, y)
+                        }
                     }
-                    val x = viewport.xForIndex(plotRect.right, index.toDouble()) - viewport.candleHalfStepPx
-                    val y = values.yFor(value, plotRect)
-                    if (hasPoint) path.lineTo(x, y) else path.moveTo(x, y)
-                    hasPoint = true
+                    add(KlinePreparedIndicatorLine(path, color, widthPx))
                 }
-                add(
-                    KlinePreparedIndicatorLine(
-                        path = path,
-                        color = configuredStyle?.color ?: indicatorColors[colorIndex % indicatorColors.size],
-                        widthPx = configuredStyle?.widthPx ?: 1.25f,
-                    ),
-                )
                 colorIndex++
             }
         }
@@ -744,6 +1256,8 @@ internal data class KlineIndicatorRenderFrame(
     val item: KlineIndicatorRenderItem,
     val context: KlineIndicatorDrawContext,
     val preparedLines: List<KlinePreparedIndicatorLine>? = null,
+    /** X delta from the viewport that produced [preparedLines]. */
+    val preparedLineTranslationX: Float = 0f,
 )
 /** Indicator frames in main z-order and physical sub-pane order. */
 
@@ -755,6 +1269,106 @@ internal data class KlineIndicatorRenderFrames(
 
 internal fun List<KlineIndicatorRenderItem>.isVolumeOnlyPane(): Boolean =
     isNotEmpty() && all { it.definition.calculator === Volume }
+
+/** Caches immutable indicator-column extrema while preserving live renderer range callbacks. */
+internal class KlineIndicatorBaseRangeCache(
+    private val capacity: Int = 16,
+) {
+    private data class Entry(
+        val identity: Any,
+        val range: IndexRange,
+        val minimum: Double?,
+        val value: KlineRawValueRange?,
+    )
+
+    private val entries = ArrayList<Entry>(capacity)
+
+    fun resolve(
+        identity: Any,
+        outputs: List<IndicatorOutput>,
+        range: IndexRange,
+        minimum: Double? = null,
+    ): KlineRawValueRange? {
+        val hit = entries.indexOfLast { entry ->
+            entry.identity === identity && entry.range == range && entry.minimum == minimum
+        }
+        if (hit >= 0) {
+            val entry = entries.removeAt(hit)
+            entries += entry
+            return entry.value
+        }
+        val value = outputs.rawValueRange(range = range, minimum = minimum)
+        if (entries.size == capacity) entries.removeAt(0)
+        entries += Entry(identity = identity, range = range, minimum = minimum, value = value)
+        return value
+    }
+}
+
+internal data class KlinePreparedIndicatorGeometry(
+    val lines: List<KlinePreparedIndicatorLine>,
+    val translationX: Float,
+)
+
+/** Reuses line Paths for sub-candle pan offsets where the visible index range is unchanged. */
+internal class KlinePreparedIndicatorLineCache(
+    private val capacity: Int = 24,
+) {
+    private data class Entry(
+        val identity: Any,
+        val range: IndexRange,
+        val plotRect: Rect,
+        val valueRange: KlineValueRange,
+        val candleWidthPx: Float,
+        val candleSpacingPx: Float,
+        val style: KlineChartStyle,
+        val recordedRightEdgeOffsetPx: Float,
+        val lines: List<KlinePreparedIndicatorLine>,
+    )
+
+    private val entries = ArrayList<Entry>(capacity)
+
+    fun resolve(
+        identity: Any,
+        range: IndexRange,
+        plotRect: Rect,
+        valueRange: KlineValueRange,
+        viewport: KlineViewport,
+        style: KlineChartStyle,
+        producer: () -> List<KlinePreparedIndicatorLine>,
+    ): KlinePreparedIndicatorGeometry {
+        val hit = entries.indexOfLast { entry ->
+            entry.identity === identity &&
+                entry.range == range &&
+                entry.plotRect == plotRect &&
+                entry.valueRange == valueRange &&
+                entry.candleWidthPx == viewport.candleWidthPx &&
+                entry.candleSpacingPx == viewport.candleSpacingPx &&
+                entry.style == style
+        }
+        if (hit >= 0) {
+            val entry = entries.removeAt(hit)
+            entries += entry
+            return KlinePreparedIndicatorGeometry(
+                lines = entry.lines,
+                translationX = viewport.rightEdgeOffsetPx - entry.recordedRightEdgeOffsetPx,
+            )
+        }
+        val lines = producer()
+        if (entries.size == capacity) entries.removeAt(0)
+        entries += Entry(
+            identity = identity,
+            range = range,
+            plotRect = plotRect,
+            valueRange = valueRange,
+            candleWidthPx = viewport.candleWidthPx,
+            candleSpacingPx = viewport.candleSpacingPx,
+            style = style,
+            recordedRightEdgeOffsetPx = viewport.rightEdgeOffsetPx,
+            lines = lines,
+        )
+        return KlinePreparedIndicatorGeometry(lines = lines, translationX = 0f)
+    }
+}
 /**
  * Resolves native indicator frames for optional overlay/cross/Top Tips/tap phases.
  * Regular Canvas painters use the same geometry/range equations below; this
@@ -774,6 +1388,10 @@ internal fun resolveKlineIndicatorRenderFrames(
     subPaneRangeSmoothers: KlinePaneValueRangeSmoothers? = null,
     subPaneRangeResetKey: Any? = null,
     subPaneRangeTransition: KlineValueRangeTransition? = null,
+    prepareComputedLines: Boolean = true,
+    includeSubPanes: Boolean = true,
+    baseRangeCache: KlineIndicatorBaseRangeCache? = null,
+    preparedLineCache: KlinePreparedIndicatorLineCache? = null,
 ): KlineIndicatorRenderFrames {
 
     fun KlinePaneLayout.isDrawable(): Boolean =
@@ -796,27 +1414,41 @@ internal fun resolveKlineIndicatorRenderFrames(
             colorIndex = item.colorIndex,
             densityScale = densityScale,
         )
-        val preparedLines = if (item.renderer === KlineComputedLineIndicatorRenderer) {
+        val preparedGeometry = if (
+            prepareComputedLines && item.renderer.builtInComputedLineRendererOrNull() != null
+        ) {
             item.output?.let { output ->
-                prepareIndicatorLines(
-                    outputs = listOf(output),
+                val producer = {
+                    prepareIndicatorLines(
+                        outputs = listOf(output),
+                        range = paintRange,
+                        plotRect = pane.plotRect,
+                        values = valueRange,
+                        viewport = state.viewport,
+                        style = style,
+                        colorOffset = item.colorIndex,
+                        lineStyles = item.definition.configuredLineStyles(),
+                        excludedColumns = item.definition.excludedLineColumns(),
+                    )
+                }
+                preparedLineCache?.resolve(
+                    identity = item,
                     range = paintRange,
                     plotRect = pane.plotRect,
-                    values = valueRange,
+                    valueRange = valueRange,
                     viewport = state.viewport,
                     style = style,
-                    colorOffset = item.colorIndex,
-                    lineStyles = item.definition.configuredLineStyles(),
-                    excludedColumns = item.definition.excludedLineColumns(),
-                )
-            } ?: emptyList()
+                    producer = producer,
+                ) ?: KlinePreparedIndicatorGeometry(producer(), 0f)
+            } ?: KlinePreparedIndicatorGeometry(emptyList(), 0f)
         } else {
             null
         }
         return KlineIndicatorRenderFrame(
             item = item,
             context = context,
-            preparedLines = preparedLines,
+            preparedLines = preparedGeometry?.lines,
+            preparedLineTranslationX = preparedGeometry?.translationX ?: 0f,
         )
     }
     val main = if (hideMainIndicators) {
@@ -830,14 +1462,21 @@ internal fun resolveKlineIndicatorRenderFrames(
                 com.zhumeng.kanvas.core.IndicatorPaintMode.ALONE -> {
                     val pane = resolveMainAlonePane(layout.mainPane, item, densityScale)
                     if (!pane.isDrawable()) return@mapNotNull null
-                    val valueRange = listOfNotNull(item.output).valueRange(
-                        range = paintRange,
+                    val outputs = listOfNotNull(item.output)
+                    val rendererRanges = listOf(item).rendererValueRanges(
+                        state = state,
+                        paintRange = paintRange,
+                        viewport = state.viewport,
+                    )
+                    val valueRange = (
+                        baseRangeCache?.resolve(
+                            identity = item,
+                            outputs = outputs,
+                            range = paintRange,
+                        ) ?: outputs.rawValueRange(paintRange)
+                    ).normalizedIncluding(
+                        rendererRanges = rendererRanges,
                         sameValueExpansionRatios = sameValueExpansionRatios,
-                        rendererRanges = listOf(item).rendererValueRanges(
-                            state = state,
-                            paintRange = paintRange,
-                            viewport = state.viewport,
-                        ),
                     )
                     frame(item, pane, valueRange)
                 }
@@ -845,19 +1484,28 @@ internal fun resolveKlineIndicatorRenderFrames(
         }
     }
     val subByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
-    layout.subPanes.forEach { pane ->
+    if (includeSubPanes) layout.subPanes.forEach { pane ->
         if (!pane.isDrawable()) return@forEach
         val items = indicatorPanePlan.subByPane[pane.id].orEmpty()
         if (items.isEmpty()) return@forEach
-        val targetValueRange = items.mapNotNull(KlineIndicatorRenderItem::output).valueRange(
-            range = paintRange,
-            minimum = if (items.isVolumeOnlyPane()) 0.0 else null,
+        val minimum = if (items.isVolumeOnlyPane()) 0.0 else null
+        val outputs = items.mapNotNull(KlineIndicatorRenderItem::output)
+        val rendererRanges = items.rendererValueRanges(
+            state = state,
+            paintRange = paintRange,
+            viewport = state.viewport,
+        )
+        val targetValueRange = (
+            baseRangeCache?.resolve(
+                identity = items,
+                outputs = outputs,
+                range = paintRange,
+                minimum = minimum,
+            ) ?: outputs.rawValueRange(range = paintRange, minimum = minimum)
+        ).normalizedIncluding(
+            rendererRanges = rendererRanges,
             sameValueExpansionRatios = sameValueExpansionRatios,
-            rendererRanges = items.rendererValueRanges(
-                state = state,
-                paintRange = paintRange,
-                viewport = state.viewport,
-            ),
+            minimum = minimum,
         )
         val valueRange = subPaneRangeSmoothers?.resolve(
             paneId = pane.id,
@@ -978,12 +1626,20 @@ internal fun DrawScope.drawIndicatorFrames(
 }
 
 internal fun DrawScope.drawIndicatorFrame(frame: KlineIndicatorRenderFrame) {
-    if (frame.item.renderer === KlineComputedLineIndicatorRenderer) {
-        KlineComputedLineIndicatorRenderer.draw(
-            scope = this,
-            context = frame.context,
-            preparedLines = frame.preparedLines,
-        )
+    val computedLineRenderer = frame.item.renderer.builtInComputedLineRendererOrNull()
+    if (computedLineRenderer != null) {
+        val drawPrepared = {
+            computedLineRenderer.draw(
+                scope = this,
+                context = frame.context,
+                preparedLines = frame.preparedLines,
+            )
+        }
+        if (frame.preparedLineTranslationX == 0f) {
+            drawPrepared()
+        } else {
+            translate(left = frame.preparedLineTranslationX) { drawPrepared() }
+        }
     } else {
         frame.item.renderer.draw(scope = this, context = frame.context)
     }
@@ -1056,14 +1712,15 @@ internal fun DrawScope.drawMainIndicatorFrames(
     grid: KlineGridRenderConfig,
     textMeasurer: TextMeasurer,
     precision: Int,
+    horizontalClipOverscanPx: Float = 0f,
 ) {
     frames.forEach { frame ->
         when (frame.item.definition.paintMode) {
             com.zhumeng.kanvas.core.IndicatorPaintMode.COMBINE -> {
                 clipRect(
-                    mainPane.plotRect.left,
+                    mainPane.plotRect.left - horizontalClipOverscanPx,
                     mainPane.plotRect.top,
-                    mainPane.plotRect.right,
+                    mainPane.plotRect.right + horizontalClipOverscanPx,
                     mainPane.plotRect.bottom,
                 ) {
                     drawIndicatorFrame(frame)
@@ -1099,16 +1756,33 @@ internal fun DrawScope.drawVolumeBars(
     viewport: KlineViewport,
     style: KlineChartStyle,
 ) {
+    if (range.isEmpty) return
     val halfWidth = max(logicalPx(0.5f), viewport.candleHalfStepPx - viewport.candleSpacingPx)
+    val buffer = checkNotNull(klineVolumeDrawBuffer.get()).also(KlineVolumeDrawBuffer::reset)
     for (index in range.startInclusive until range.endExclusive) {
         val volume = valuesColumn[index]
         if (!volume.isFinite()) continue
         val candle = candles[index]
         val x = viewport.xForIndex(plotRect.right, index.toDouble()) - viewport.candleHalfStepPx
         val top = values.yFor(volume, plotRect)
-        val color = if (candle.close >= candle.open) style.volumeBullish else style.volumeBearish
-        val body = Rect(x - halfWidth, top, x + halfWidth, plotRect.bottom)
-        drawRect(color, topLeft = body.topLeft, size = body.size)
+        val bullish = candle.close >= candle.open
+        val bars = if (bullish) buffer.bullishBars else buffer.bearishBars
+        bars.add(
+            x - halfWidth,
+            top,
+            x + halfWidth,
+            plotRect.bottom,
+        )
+        if (bullish) buffer.hasBullishBars = true else buffer.hasBearishBars = true
+    }
+    val canvas = drawContext.canvas.nativeCanvas
+    if (buffer.hasBullishBars) {
+        buffer.bullishPaint.configureKlineBar(style.volumeBullish.toArgb(), AndroidPaint.Style.FILL)
+        buffer.bullishBars.draw(canvas, buffer.bullishPaint)
+    }
+    if (buffer.hasBearishBars) {
+        buffer.bearishPaint.configureKlineBar(style.volumeBearish.toArgb(), AndroidPaint.Style.FILL)
+        buffer.bearishBars.draw(canvas, buffer.bearishPaint)
     }
 }
 
@@ -1123,19 +1797,11 @@ internal fun DrawScope.drawHighLowMarks(
     config: KlineCandleOverlayRenderConfig,
     textMeasurer: TextMeasurer,
 ) {
-    if (range.isEmpty) return
-    var highIndex = -1
-    var lowIndex = -1
-    for (index in range.startInclusive until range.endExclusive) {
-        val candle = candles[index]
-        if (!candle.isRenderable) continue
-        if (highIndex < 0 || candle.high > candles[highIndex].high) highIndex = index
-        if (lowIndex < 0 || candle.low < candles[lowIndex].low) lowIndex = index
-    }
-    if (config.high.show && highIndex >= 0) {
+    val selection = resolveKlinePriceExtremeSelection(candles, range)
+    if (config.high.show && selection.highIndex >= 0) {
         drawPriceExtremeMark(
-            index = highIndex,
-            value = candles[highIndex].high,
+            index = selection.highIndex,
+            value = selection.highValue,
             plotRect = plotRect,
             values = values,
             viewport = viewport,
@@ -1145,10 +1811,10 @@ internal fun DrawScope.drawHighLowMarks(
             textMeasurer = textMeasurer,
         )
     }
-    if (config.low.show && lowIndex >= 0) {
+    if (config.low.show && selection.lowIndex >= 0) {
         drawPriceExtremeMark(
-            index = lowIndex,
-            value = candles[lowIndex].low,
+            index = selection.lowIndex,
+            value = selection.lowValue,
             plotRect = plotRect,
             values = values,
             viewport = viewport,
@@ -1158,6 +1824,33 @@ internal fun DrawScope.drawHighLowMarks(
             textMeasurer = textMeasurer,
         )
     }
+}
+
+internal data class KlinePriceExtremeSelection(
+    val highIndex: Int,
+    val highValue: Double,
+    val lowIndex: Int,
+    val lowValue: Double,
+)
+
+internal fun resolveKlinePriceExtremeSelection(
+    candles: List<KlineCandle>,
+    range: IndexRange,
+): KlinePriceExtremeSelection {
+    var highIndex = -1
+    var lowIndex = -1
+    for (index in range.startInclusive until range.endExclusive) {
+        val candle = candles[index]
+        if (!candle.isRenderable) continue
+        if (highIndex < 0 || candle.high > candles[highIndex].high) highIndex = index
+        if (lowIndex < 0 || candle.low < candles[lowIndex].low) lowIndex = index
+    }
+    return KlinePriceExtremeSelection(
+        highIndex = highIndex,
+        highValue = highIndex.takeIf { it >= 0 }?.let { candles[it].high } ?: Double.NaN,
+        lowIndex = lowIndex,
+        lowValue = lowIndex.takeIf { it >= 0 }?.let { candles[it].low } ?: Double.NaN,
+    )
 }
 
 internal fun DrawScope.drawPriceExtremeMark(
@@ -1179,51 +1872,22 @@ internal fun DrawScope.drawPriceExtremeMark(
     val lineLength = logicalPx(config.lineLengthPx ?: 0f)
     val end = Offset(start.x + direction * lineLength, start.y)
     drawConfiguredLine(config.line, fallbackColor = style.markLine, start = start, end = end)
-    val textArea = config.text
-    val textStyle = textArea.toComposeTextStyle(style.ticksTextColor)
-    val text = formatPrice(value, precision)
-    val naturalLayout = textMeasurer.measure(
-        text = AnnotatedString(text),
-        style = textStyle,
-        maxLines = textArea.maxLines,
-        overflow = TextOverflow.Ellipsis,
-    )
-    val contentWidth = textArea.resolveContentWidth(naturalLayout.size.width.toFloat(), density)
-    val layout = textMeasurer.measure(
-        text = AnnotatedString(text),
-        style = textStyle,
-        constraints = Constraints.fixedWidth(contentWidth.roundToInt().coerceAtLeast(1)),
-        maxLines = textArea.maxLines,
-        overflow = TextOverflow.Ellipsis,
-    )
-    val paddingLeft = logicalPx(textArea.padding.leftPx)
-    val paddingRight = logicalPx(textArea.padding.rightPx)
-    val paddingTop = logicalPx(textArea.padding.topPx)
-    val paddingBottom = logicalPx(textArea.padding.bottomPx)
-    val areaWidth = contentWidth + paddingLeft + paddingRight
-    val areaHeight = layout.size.height + paddingTop + paddingBottom
-    val preferredLeft = if (direction < 0f) {
-        end.x - logicalPx(config.spacingPx) - areaWidth
-    } else {
-        end.x + logicalPx(config.spacingPx)
-    }
-    val left = preferredLeft.coerceIn(plotRect.left, (plotRect.right - areaWidth).coerceAtLeast(plotRect.left))
-    val top = (start.y - areaHeight / 2f)
-        .coerceIn(plotRect.top, (plotRect.bottom - areaHeight).coerceAtLeast(plotRect.top))
-    drawKlineTextAreaBackground(
-        rect = Rect(left, top, left + areaWidth, top + areaHeight),
-        config = textArea,
-        fallbackBackground = null,
-        fallbackBorder = null,
-    )
-    drawText(
+    drawKlineTextArea(
+        text = formatPrice(value, precision),
+        anchor = Offset(
+            x = end.x + direction * logicalPx(config.spacingPx),
+            y = start.y,
+        ),
+        horizontalAnchor = if (direction < 0f) {
+            KlineTextAreaHorizontalAnchor.End
+        } else {
+            KlineTextAreaHorizontalAnchor.Start
+        },
+        verticalAnchor = KlineTextAreaVerticalAnchor.Center,
+        config = config.text,
         textMeasurer = textMeasurer,
-        text = AnnotatedString(text),
-        topLeft = Offset(left + paddingLeft, top + paddingTop),
-        style = textStyle,
-        size = Size(contentWidth, layout.size.height.toFloat()),
-        maxLines = textArea.maxLines,
-        overflow = TextOverflow.Ellipsis,
+        fallbackTextColor = style.ticksTextColor,
+        drawableRect = plotRect,
     )
 }
 
@@ -1347,6 +2011,133 @@ internal fun resolveLatestPriceMarkerVisual(
     )
 }
 
+/** Fast path for the library's single-line latest-price and countdown labels. */
+private fun DrawScope.drawNativeSimpleLatestPrice(
+    latest: KlineCandle?,
+    interval: KlineInterval?,
+    nowMillis: Long,
+    plotRect: Rect,
+    values: KlineValueRange,
+    viewport: KlineViewport,
+    precision: Int,
+    style: KlineChartStyle,
+    config: KlineCandleOverlayRenderConfig,
+): Boolean {
+    val candle = latest ?: return true
+    if (!candle.isRenderable) return true
+    val latestCenter = viewport.xForIndex(plotRect.right, 0.0) - viewport.candleHalfStepPx
+    val inView = latestCenter in plotRect.left..plotRect.right
+    val marker = if (inView) config.inViewPrice else config.offViewPrice
+    if (!marker.show) return true
+    val textArea = marker.text
+    if (!textArea.supportsNativeSimpleTextArea()) return false
+    val candleColor = if (candle.close >= candle.open) style.bullish else style.bearish
+    val fallbackTextColor = when {
+        config.useCandleColorForLatestPriceBackground && inView -> Color.White
+        inView -> style.ticksTextColor
+        else -> style.lastPriceTextColor
+    }
+    val text = buildString {
+        append(formatPrice(candle.close, precision))
+        if (!inView) append(" ▸")
+    }
+    val priceMetrics = resolveNativeSimpleTextMetrics(
+        text = text,
+        config = textArea,
+        fallbackTextColor = fallbackTextColor,
+    ) ?: return false
+    val geometry = resolveKlineLatestPriceMarkerGeometry(
+        plotRect = plotRect,
+        latestCenterX = latestCenter,
+        latestPriceY = values.yFor(candle.close, plotRect),
+        marker = marker,
+        labelSize = Size(priceMetrics.areaWidth, priceMetrics.areaHeight),
+        densityScale = density,
+    ) ?: return true
+    val countdownText = if (geometry.isInView && config.countdown.show) {
+        resolveKlineCountdownText(latest, interval, nowMillis)
+    } else {
+        null
+    }
+    val countdown = config.countdown.text
+    val countdownContentWidth = (
+        geometry.labelRect.width -
+            logicalPx(countdown.padding.leftPx) -
+            logicalPx(countdown.padding.rightPx)
+        ).coerceAtLeast(1f)
+    val countdownMetrics = countdownText?.let {
+        if (!countdown.supportsNativeSimpleTextArea()) return false
+        resolveNativeSimpleTextMetrics(
+            text = it,
+            config = countdown,
+            fallbackTextColor = style.textColor,
+            forcedContentWidth = countdownContentWidth,
+        ) ?: return false
+    }
+    val fallbackLineColor = if (config.useCandleColorForLatestPriceBackground && inView) {
+        candleColor
+    } else {
+        style.markLine
+    }
+    val background = if (config.useCandleColorForLatestPriceBackground && inView) {
+        candleColor
+    } else if (inView) {
+        style.latestPriceBackground
+    } else {
+        style.lastPriceBackground
+    }
+    val borderColor = if (config.useCandleColorForLatestPriceBackground && inView) {
+        Color.Transparent
+    } else {
+        style.markLine
+    }
+    drawConfiguredLine(
+        stroke = geometry.marker.line,
+        fallbackColor = fallbackLineColor,
+        start = Offset(geometry.lineStartX, geometry.y),
+        end = Offset(geometry.labelRect.left, geometry.y),
+    )
+    drawKlineTextAreaBackground(
+        rect = geometry.labelRect,
+        config = textArea,
+        fallbackBackground = background,
+        fallbackBorder = borderColor,
+    )
+    drawNativeSimpleTextInRect(
+        text = text,
+        rect = geometry.labelRect,
+        config = textArea,
+        fallbackTextColor = fallbackTextColor,
+        metrics = priceMetrics,
+    )
+    if (countdownText != null && countdownMetrics != null) {
+        val countdownRect = Rect(
+            left = geometry.labelRect.left,
+            top = geometry.labelRect.bottom - 0.5f * density,
+            right = geometry.labelRect.right,
+            bottom = geometry.labelRect.bottom - 0.5f * density + countdownMetrics.areaHeight,
+        )
+        drawKlineTextAreaBackground(
+            rect = countdownRect,
+            config = if (config.useCandleColorForLatestPriceBackground) {
+                countdown.copy(borderWidthPx = 0f)
+            } else {
+                countdown
+            },
+            fallbackBackground = style.countdownBackground,
+            fallbackBorder = style.markLine,
+        )
+        drawNativeSimpleTextInRect(
+            text = countdownText,
+            rect = countdownRect,
+            config = countdown,
+            fallbackTextColor = style.textColor,
+            metrics = countdownMetrics,
+        )
+    }
+    return true
+}
+
 internal fun DrawScope.drawLatestPrice(
     latest: KlineCandle?,
     interval: KlineInterval?,
@@ -1359,6 +2150,19 @@ internal fun DrawScope.drawLatestPrice(
     config: KlineCandleOverlayRenderConfig,
     textMeasurer: TextMeasurer,
 ) {
+    if (
+        drawNativeSimpleLatestPrice(
+            latest = latest,
+            interval = interval,
+            nowMillis = nowMillis,
+            plotRect = plotRect,
+            values = values,
+            viewport = viewport,
+            precision = precision,
+            style = style,
+            config = config,
+        )
+    ) return
     val visual = resolveLatestPriceMarkerVisual(
         latest = latest,
         plotRect = plotRect,
@@ -1452,6 +2256,40 @@ internal fun KlineTextAreaRenderConfig.resolveContentWidth(
         .coerceAtLeast((minWidthPx ?: 0f) * densityScale)
         .let { width -> maxWidthPx?.let { width.coerceAtMost(it * densityScale) } ?: width }
 
+/** Exact layout bounds used to keep translated text RenderNodes tightly sized. */
+internal fun DrawScope.measureKlineTextAreaSize(
+    text: String,
+    config: KlineTextAreaRenderConfig,
+    textMeasurer: TextMeasurer,
+    fallbackTextColor: Color,
+): Size {
+    val textStyle = config.toComposeTextStyle(fallbackTextColor)
+    val annotatedText = AnnotatedString(text)
+    val naturalLayout = textMeasurer.measure(
+        text = annotatedText,
+        style = textStyle,
+        maxLines = config.maxLines,
+        overflow = TextOverflow.Ellipsis,
+    )
+    val contentWidth = config.resolveContentWidth(naturalLayout.size.width.toFloat(), density)
+    val fixedWidth = contentWidth.roundToInt().coerceAtLeast(1)
+    val layout = if (fixedWidth == naturalLayout.size.width) {
+        naturalLayout
+    } else {
+        textMeasurer.measure(
+            text = annotatedText,
+            style = textStyle,
+            constraints = Constraints.fixedWidth(fixedWidth),
+            maxLines = config.maxLines,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+    return Size(
+        width = contentWidth + logicalPx(config.padding.leftPx + config.padding.rightPx),
+        height = layout.size.height + logicalPx(config.padding.topPx + config.padding.bottomPx),
+    )
+}
+
 internal fun KlineTextAreaRenderConfig.toComposeTextStyle(fallbackColor: Color): TextStyle = TextStyle(
     color = textColor ?: fallbackColor,
     fontSize = fontSizeSp.sp,
@@ -1484,6 +2322,10 @@ internal fun DrawScope.drawKlineTextAreaBackground(
     fallbackBackground: Color?,
     fallbackBorder: Color?,
 ) {
+    val backgroundColor = config.backgroundColor ?: fallbackBackground
+    val borderColor = config.borderColor ?: fallbackBorder
+    val drawsBorder = config.borderWidthPx > 0f && borderColor != null
+    if (backgroundColor == null && !drawsBorder) return
     val radius = config.borderRadius
     val roundRect = RoundRect(
         rect = rect,
@@ -1493,12 +2335,11 @@ internal fun DrawScope.drawKlineTextAreaBackground(
         bottomLeft = CornerRadius(logicalPx(radius.bottomLeft.xPx), logicalPx(radius.bottomLeft.yPx)),
     )
     val path = Path().apply { addRoundRect(roundRect) }
-    (config.backgroundColor ?: fallbackBackground)?.let { drawPath(path, color = it) }
-    val borderColor = config.borderColor ?: fallbackBorder
-    if (config.borderWidthPx > 0f && borderColor != null) {
+    backgroundColor?.let { drawPath(path, color = it) }
+    if (drawsBorder) {
         drawPath(
             path = path,
-            color = borderColor,
+            color = checkNotNull(borderColor),
             style = Stroke(width = logicalPx(config.borderWidthPx)),
         )
     }
@@ -1529,6 +2370,19 @@ internal fun DrawScope.drawKlineTextArea(
     fallbackBorder: Color? = null,
     drawableRect: Rect? = null,
 ): Rect {
+    if (config.supportsNativeSimpleTextArea()) {
+        drawNativeSimpleTextArea(
+            text = text,
+            anchor = anchor,
+            horizontalAnchor = horizontalAnchor,
+            verticalAnchor = verticalAnchor,
+            config = config,
+            fallbackTextColor = fallbackTextColor,
+            drawableRect = drawableRect,
+            fallbackBackground = fallbackBackground,
+            fallbackBorder = fallbackBorder,
+        )?.let { return it }
+    }
     val textStyle = config.toComposeTextStyle(fallbackTextColor)
     val annotatedText = AnnotatedString(text)
     val naturalLayout = textMeasurer.measure(
@@ -1571,13 +2425,8 @@ internal fun DrawScope.drawKlineTextArea(
     val rect = Rect(left, top, left + width, top + height)
     drawKlineTextAreaBackground(rect, config, fallbackBackground, fallbackBorder)
     drawText(
-        textMeasurer = textMeasurer,
-        text = AnnotatedString(text),
+        textLayoutResult = layout,
         topLeft = Offset(left + paddingLeft, top + paddingTop),
-        style = textStyle,
-        size = Size(contentWidth, layout.size.height.toFloat()),
-        maxLines = config.maxLines,
-        overflow = TextOverflow.Ellipsis,
     )
     return rect
 }
@@ -1648,6 +2497,10 @@ internal fun DrawScope.drawTimeAxis(
     // Use the globally stable candle index for cadence so labels do not jump
     // phase while panning.
     val every = max(1, (max(60f, cadenceWidth) * density / viewport.candleStepPx).roundToInt())
+    val nativePaint = textArea
+        .takeIf(KlineTextAreaRenderConfig::supportsNativeSimpleTextArea)
+        ?.let { configureNativeSimpleTextPaint(it, style.ticksTextColor) }
+    val nativeFontMetrics = nativePaint?.fontMetrics
 
     fun paintLabels() {
         for (index in range.startInclusive until range.endExclusive) {
@@ -1655,6 +2508,20 @@ internal fun DrawScope.drawTimeAxis(
             val x = viewport.xForIndex(chartRect.right, index.toDouble()) - viewport.candleHalfStepPx
             if (x < chartRect.left - logicalPx(cadenceWidth) || x > chartRect.right) continue
             val label = formatter(candles[index], interval)
+            if (
+                nativePaint != null &&
+                nativeFontMetrics != null &&
+                drawNativeSimpleCenteredTextArea(
+                    text = label,
+                    center = Offset(x, timeRect.center.y),
+                    config = textArea,
+                    fallbackTextColor = style.ticksTextColor,
+                    paint = nativePaint,
+                    fontMetrics = nativeFontMetrics,
+                )
+            ) {
+                continue
+            }
             drawKlineTextArea(
                 text = label,
                 anchor = Offset(x, timeRect.center.y),
@@ -1687,7 +2554,25 @@ internal fun DrawScope.drawCrossTimeLabel(
     formatter: KlineTimeLabelFormatter,
 ) {
     if (timeRect.width <= 0f || timeRect.height <= 0f || interval?.isValid == false) return
-    val text = formatter(candle, interval)
+    drawCrossTimeLabelText(
+        text = formatter(candle, interval),
+        snappedX = snappedX,
+        timeRect = timeRect,
+        style = style,
+        textMeasurer = textMeasurer,
+        config = config,
+    )
+}
+
+internal fun DrawScope.drawCrossTimeLabelText(
+    text: String,
+    snappedX: Float,
+    timeRect: Rect,
+    style: KlineChartStyle,
+    textMeasurer: TextMeasurer,
+    config: KlineCrosshairRenderConfig,
+) {
+    if (timeRect.width <= 0f || timeRect.height <= 0f) return
     drawKlineTextArea(
         text = text,
         anchor = Offset(snappedX, timeRect.center.y),
@@ -1699,6 +2584,76 @@ internal fun DrawScope.drawCrossTimeLabel(
         fallbackBackground = style.crossTextBackground,
         fallbackBorder = style.crosshair,
         drawableRect = timeRect,
+    )
+}
+
+internal fun DrawScope.drawCrossVerticalLine(
+    x: Float,
+    top: Float,
+    bottom: Float,
+    style: KlineChartStyle,
+    config: KlineCrosshairRenderConfig,
+) {
+    drawConfiguredLine(
+        stroke = config.stroke,
+        fallbackColor = style.crosshair,
+        start = Offset(x, top),
+        end = Offset(x, bottom),
+    )
+}
+
+internal fun DrawScope.drawCrossHorizontalLine(
+    y: Float,
+    left: Float,
+    right: Float,
+    style: KlineChartStyle,
+    config: KlineCrosshairRenderConfig,
+) {
+    drawConfiguredLine(
+        stroke = config.stroke,
+        fallbackColor = style.crosshair,
+        start = Offset(left, y),
+        end = Offset(right, y),
+    )
+}
+
+internal fun DrawScope.drawCrossPoint(
+    position: Offset,
+    style: KlineChartStyle,
+    config: KlineCrosshairRenderConfig,
+) {
+    val pointRadius = logicalPx(config.pointRadiusPx)
+    if (pointRadius <= 0f) return
+    drawCircle(config.pointColor ?: style.background, radius = pointRadius, center = position)
+    if (config.pointBorderWidthPx > 0f) {
+        drawCircle(
+            config.pointBorderColor ?: config.stroke.color ?: style.crosshair,
+            radius = pointRadius,
+            center = position,
+            style = Stroke(width = logicalPx(config.pointBorderWidthPx)),
+        )
+    }
+}
+
+internal fun DrawScope.drawCrossPriceLabel(
+    text: String,
+    y: Float,
+    plotRect: Rect,
+    style: KlineChartStyle,
+    config: KlineCrosshairRenderConfig,
+    textMeasurer: TextMeasurer,
+) {
+    drawKlineTextArea(
+        text = text,
+        anchor = Offset(plotRect.right - logicalPx(config.ticksSpacingPx), y),
+        horizontalAnchor = KlineTextAreaHorizontalAnchor.End,
+        verticalAnchor = KlineTextAreaVerticalAnchor.Center,
+        config = config.ticksText,
+        textMeasurer = textMeasurer,
+        fallbackTextColor = style.crossTextColor,
+        fallbackBackground = style.crossTextBackground,
+        fallbackBorder = style.crosshair,
+        drawableRect = plotRect,
     )
 }
 
@@ -1721,44 +2676,17 @@ internal fun DrawScope.drawCrosshair(
     val crossPosition = crosshair.position
     val effectiveRight = crosshairRightPx.coerceIn(plotRect.left, plotRect.right)
     clipRect(plotRect.left, verticalRect.top, effectiveRight, verticalRect.bottom) {
-        drawConfiguredLine(
-            stroke = config.stroke,
-            fallbackColor = style.crosshair,
-            start = Offset(snappedX, verticalRect.top),
-            end = Offset(snappedX, verticalRect.bottom),
-        )
-        drawConfiguredLine(
-            stroke = config.stroke,
-            fallbackColor = style.crosshair,
-            start = Offset(plotRect.left, position.y),
-            end = Offset(effectiveRight, position.y),
-        )
+        drawCrossVerticalLine(snappedX, verticalRect.top, verticalRect.bottom, style, config)
+        drawCrossHorizontalLine(position.y, plotRect.left, effectiveRight, style, config)
+        drawCrossPoint(crossPosition, style, config)
     }
-    val pointRadius = logicalPx(config.pointRadiusPx)
-    if (pointRadius > 0f) {
-        clipRect(plotRect.left, verticalRect.top, effectiveRight, verticalRect.bottom) {
-            drawCircle(config.pointColor ?: style.background, radius = pointRadius, center = crossPosition)
-            if (config.pointBorderWidthPx > 0f) {
-                drawCircle(
-                    config.pointBorderColor ?: config.stroke.color ?: style.crosshair,
-                    radius = pointRadius,
-                    center = crossPosition,
-                    style = Stroke(width = logicalPx(config.pointBorderWidthPx)),
-                )
-            }
-        }
-    }
-    drawKlineTextArea(
+    drawCrossPriceLabel(
         text = formatPrice(value, state.spec?.precision ?: KlineSpec.DefaultPrecision),
-        anchor = Offset(plotRect.right - logicalPx(config.ticksSpacingPx), position.y),
-        horizontalAnchor = KlineTextAreaHorizontalAnchor.End,
-        verticalAnchor = KlineTextAreaVerticalAnchor.Center,
-        config = config.ticksText,
+        y = position.y,
+        plotRect = plotRect,
+        style = style,
+        config = config,
         textMeasurer = textMeasurer,
-        fallbackTextColor = style.crossTextColor,
-        fallbackBackground = style.crossTextBackground,
-        fallbackBorder = style.crosshair,
-        drawableRect = plotRect,
     )
     tooltipPresentation?.let(::drawKlineCrossTooltip)
     return KlineCrosshairPaintResult(context = crosshair, value = value)
@@ -1774,6 +2702,7 @@ internal fun resolveKlineCrossTooltipPresentation(
     style: KlineChartStyle,
     textMeasurer: TextMeasurer,
     densityScale: Float,
+    fontScale: Float,
     timeLabelFormatter: KlineTimeLabelFormatter,
     provider: KlineCrossTooltipProvider?,
     stableContentWidthPx: Float?,
@@ -1814,19 +2743,39 @@ internal fun resolveKlineCrossTooltipPresentation(
     val padding = (config.tooltipTextArea?.padding ?: config.tooltipPadding).toCanvasPixels(densityScale)
     val margin = config.tooltipMargin.toCanvasPixels(densityScale)
     val columnSpacingPx = config.tooltipSpacingPx * densityScale
-    var textLayouts = measureItems()
+    var useNativeSimpleText = provider == null && config.tooltipTextArea == null
+    var textLayouts = if (useNativeSimpleText) emptyList() else measureItems()
+    var itemMeasurements = if (useNativeSimpleText) {
+        val paint = checkNotNull(klineSimpleAxisTextPaint.get()).apply {
+            textSize = 10f * densityScale * fontScale
+            this.style = AndroidPaint.Style.FILL
+            typeface = android.graphics.Typeface.DEFAULT
+            isFakeBoldText = false
+            textSkewX = 0f
+        }
+        val fontMetrics = paint.fontMetrics
+        val fontHeight = fontMetrics.bottom - fontMetrics.top
+        items.map { item ->
+            KlineCrossTooltipItemMeasurement(
+                label = Size(paint.measureText(item.label), fontHeight),
+                value = Size(paint.measureText(item.value), fontHeight),
+            )
+        }
+    } else {
+        measurements(textLayouts)
+    }
     var layout = layoutKlineCrossTooltip(
         plotRect = plotRect,
         crossX = crosshair.position.x,
-        itemMeasurements = measurements(textLayouts),
+        itemMeasurements = itemMeasurements,
         padding = padding,
         margin = margin,
         columnSpacingPx = columnSpacingPx,
         minContentWidthPx = stableContentWidthPx,
         anchorRect = anchorRect,
     ) ?: return null
-    val maxLabelWidth = textLayouts.maxOf { measured -> measured.label.size.width.toFloat() }
-    val maxValueWidth = textLayouts.maxOf { measured -> measured.value.size.width.toFloat() }
+    val maxLabelWidth = itemMeasurements.maxOf { measured -> measured.label.width }
+    val maxValueWidth = itemMeasurements.maxOf { measured -> measured.value.width }
     val valueMaxWidthPx = (layout.contentWidthPx - maxLabelWidth - columnSpacingPx).coerceAtLeast(0f)
     if (valueMaxWidthPx > 0f && valueMaxWidthPx < maxValueWidth) {
         // Lay out values a second time when a narrow plot constrains their
@@ -1834,10 +2783,12 @@ internal fun resolveKlineCrossTooltipPresentation(
         // recomputing wrapped row heights and hit targets from those layouts.
         val constrainedContentWidthPx = layout.contentWidthPx
         textLayouts = measureItems(valueMaxWidthPx.roundToInt().coerceAtLeast(1))
+        itemMeasurements = measurements(textLayouts)
+        useNativeSimpleText = false
         layout = layoutKlineCrossTooltip(
             plotRect = plotRect,
             crossX = crosshair.position.x,
-            itemMeasurements = measurements(textLayouts),
+            itemMeasurements = itemMeasurements,
             padding = padding,
             margin = margin,
             columnSpacingPx = columnSpacingPx,
@@ -1850,8 +2801,11 @@ internal fun resolveKlineCrossTooltipPresentation(
         items = items,
         layout = layout,
         textLayouts = textLayouts,
+        itemMeasurements = itemMeasurements,
         backgroundColor = config.tooltipTextArea?.backgroundColor ?: style.tooltipBackground,
         textArea = config.tooltipTextArea,
+        useNativeSimpleText = useNativeSimpleText,
+        defaultTextColor = style.tooltipTextColor,
     )
 }
 /** Draws a [KlineCrossTooltipPresentation] without creating persistent Canvas state. */
@@ -1870,10 +2824,46 @@ internal fun DrawScope.drawKlineCrossTooltip(presentation: KlineCrossTooltipPres
         topLeft = Offset(card.left, card.top),
         size = Size(card.width, card.height),
     )
-    presentation.layout.rows.forEach { row ->
-        val text = presentation.textLayouts[row.index]
-        drawText(textLayoutResult = text.label, topLeft = row.labelTopLeft)
-        drawText(textLayoutResult = text.value, topLeft = row.valueTopLeft)
+    if (presentation.useNativeSimpleText) {
+        val paint = checkNotNull(klineSimpleAxisTextPaint.get()).apply {
+            textSize = with(this@drawKlineCrossTooltip) { 10.sp.toPx() }
+            style = AndroidPaint.Style.FILL
+            typeface = android.graphics.Typeface.DEFAULT
+            isFakeBoldText = false
+            textSkewX = 0f
+        }
+        val fontMetrics = paint.fontMetrics
+        val fontHeight = fontMetrics.bottom - fontMetrics.top
+        val canvas = drawContext.canvas.nativeCanvas
+        presentation.layout.rows.forEach { row ->
+            val item = presentation.items[row.index]
+            val measured = presentation.itemMeasurements[row.index]
+            val baseline = row.labelTopLeft.y +
+                (measured.label.height - fontHeight) / 2f - fontMetrics.top
+            paint.textAlign = AndroidPaint.Align.LEFT
+            paint.color = item.labelStyle?.color
+                ?.takeUnless { it == Color.Unspecified }
+                ?.toArgb()
+                ?: presentation.defaultTextColor.toArgb()
+            canvas.drawText(item.label, row.labelTopLeft.x, baseline, paint)
+            paint.textAlign = AndroidPaint.Align.RIGHT
+            paint.color = item.valueStyle?.color
+                ?.takeUnless { it == Color.Unspecified }
+                ?.toArgb()
+                ?: presentation.defaultTextColor.toArgb()
+            canvas.drawText(
+                item.value,
+                row.valueTopLeft.x + measured.value.width,
+                baseline,
+                paint,
+            )
+        }
+    } else {
+        presentation.layout.rows.forEach { row ->
+            val text = presentation.textLayouts[row.index]
+            drawText(textLayoutResult = text.label, topLeft = row.labelTopLeft)
+            drawText(textLayoutResult = text.value, topLeft = row.valueTopLeft)
+        }
     }
 }
 /**
@@ -1889,11 +2879,33 @@ internal fun List<KlineCandle>.valueRangeIncluding(
     rendererRanges: List<KlineIndicatorValueRange> = emptyList(),
     sameValueExpansionRatios: List<Float> = listOf(0.1f, 0.05f),
     includeMainIndicators: Boolean = true,
-): KlineValueRange {
+): KlineValueRange = rawValueRangeIncluding(
+    candleRange = IndexRange(0, size),
+    mainOutputs = mainOutputs,
+    paintRange = paintRange,
+    includeMainIndicators = includeMainIndicators,
+).normalizedIncluding(
+    rendererRanges = if (includeMainIndicators) rendererRanges else emptyList(),
+    sameValueExpansionRatios = sameValueExpansionRatios,
+)
+
+/** Unpadded Candle/output extrema cached independently from viewport-sensitive renderer ranges. */
+internal data class KlineRawValueRange(
+    val minimum: Double,
+    val maximum: Double,
+)
+
+internal fun List<KlineCandle>.rawValueRangeIncluding(
+    candleRange: IndexRange,
+    mainOutputs: List<IndicatorOutput>,
+    paintRange: IndexRange,
+    includeMainIndicators: Boolean = true,
+): KlineRawValueRange? {
     var low = Double.POSITIVE_INFINITY
     var high = Double.NEGATIVE_INFINITY
-    forEach { candle ->
-        if (!candle.isRenderable) return@forEach
+    for (index in candleRange.startInclusive until candleRange.endExclusive) {
+        val candle = this[index]
+        if (!candle.isRenderable) continue
         low = min(low, candle.low)
         high = max(high, candle.high)
     }
@@ -1909,16 +2921,24 @@ internal fun List<KlineCandle>.valueRangeIncluding(
                 }
             }
         }
-        rendererRanges.forEach { range ->
-            low = min(low, range.minimum)
-            high = max(high, range.maximum)
-        }
     }
-    return if (low.isFinite() && high.isFinite()) {
-        normalizedValueRange(low = low, high = high, sameValueExpansionRatios)
-    } else {
-        KlineValueRange(-1.0, 1.0)
+    return if (low.isFinite() && high.isFinite()) KlineRawValueRange(low, high) else null
+}
+
+internal fun KlineRawValueRange?.normalizedIncluding(
+    rendererRanges: List<KlineIndicatorValueRange>,
+    sameValueExpansionRatios: List<Float> = listOf(0.1f, 0.05f),
+    minimum: Double? = null,
+): KlineValueRange {
+    var low = this?.minimum ?: minimum ?: Double.POSITIVE_INFINITY
+    var high = this?.maximum ?: Double.NEGATIVE_INFINITY
+    rendererRanges.forEach { range ->
+        low = min(low, range.minimum)
+        high = max(high, range.maximum)
     }
+    if (!low.isFinite()) low = minimum ?: -1.0
+    if (!high.isFinite()) high = if (minimum != null) minimum + 1.0 else 1.0
+    return normalizedValueRange(low = low, high = high, sameValueExpansionRatios)
 }
 
 internal fun List<KlineCandle>.valueRange(): KlineValueRange =
@@ -1929,7 +2949,19 @@ internal fun List<IndicatorOutput>.valueRange(
     minimum: Double? = null,
     rendererRanges: List<KlineIndicatorValueRange> = emptyList(),
     sameValueExpansionRatios: List<Float> = listOf(0.1f, 0.05f),
-): KlineValueRange {
+): KlineValueRange = rawValueRange(
+    range = range,
+    minimum = minimum,
+).normalizedIncluding(
+    rendererRanges = rendererRanges,
+    sameValueExpansionRatios = sameValueExpansionRatios,
+    minimum = minimum,
+)
+
+internal fun List<IndicatorOutput>.rawValueRange(
+    range: IndexRange,
+    minimum: Double? = null,
+): KlineRawValueRange? {
     var low = minimum ?: Double.POSITIVE_INFINITY
     var high = Double.NEGATIVE_INFINITY
     forEach { output ->
@@ -1944,13 +2976,7 @@ internal fun List<IndicatorOutput>.valueRange(
             }
         }
     }
-    rendererRanges.forEach { contribution ->
-        low = min(low, contribution.minimum)
-        high = max(high, contribution.maximum)
-    }
-    if (!low.isFinite()) low = minimum ?: -1.0
-    if (!high.isFinite()) high = if (minimum != null) minimum + 1.0 else 1.0
-    return normalizedValueRange(low, high, sameValueExpansionRatios)
+    return if (high.isFinite()) KlineRawValueRange(low, high) else null
 }
 
 internal fun com.zhumeng.kanvas.core.IndicatorColumn.valueRange(
@@ -2067,5 +3093,33 @@ internal fun Offset.toKlineCrosshair(
     )
 }
 
-internal fun formatPrice(value: Double, precision: Int): String =
-    String.format(Locale.US, "%.${precision.coerceIn(0, 12)}f", value)
+private class KlinePriceFormatterCache {
+    private val formatters = arrayOfNulls<DecimalFormat>(13)
+
+    fun format(value: Double, precision: Int): String {
+        val clampedPrecision = precision.coerceIn(0, 12)
+        val formatter = formatters[clampedPrecision] ?: DecimalFormat(
+            buildString {
+                append('0')
+                if (clampedPrecision > 0) {
+                    append('.')
+                    repeat(clampedPrecision) { append('0') }
+                }
+            },
+            DecimalFormatSymbols.getInstance(Locale.US),
+        ).apply {
+            isGroupingUsed = false
+            roundingMode = RoundingMode.HALF_UP
+        }.also { formatters[clampedPrecision] = it }
+        return formatter.format(value)
+    }
+}
+
+private val klinePriceFormatterCache = object : ThreadLocal<KlinePriceFormatterCache>() {
+    override fun initialValue(): KlinePriceFormatterCache = KlinePriceFormatterCache()
+}
+
+internal fun formatPrice(value: Double, precision: Int): String {
+    if (!value.isFinite()) return String.format(Locale.US, "%.${precision.coerceIn(0, 12)}f", value)
+    return checkNotNull(klinePriceFormatterCache.get()).format(value, precision)
+}

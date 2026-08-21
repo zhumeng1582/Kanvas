@@ -15,7 +15,9 @@ public final class com/zhumeng/kanvas/drawing/DrawingController {
 	public final fun isSelectedOnBottom ()Z
 	public final fun isSelectedOnTop ()Z
 	public final fun moveSelectedBy (JD)Z
+	public final fun moveSelectedBy-b0fnrdo (JDLandroidx/compose/ui/geometry/Offset;)Z
 	public final fun moveSelectedPoint (Lcom/zhumeng/kanvas/drawing/DrawingPoint;)Z
+	public final fun moveSelectedPoint-MZcJ67o (Lcom/zhumeng/kanvas/drawing/DrawingPoint;Landroidx/compose/ui/geometry/Offset;)Z
 	public final fun moveSelectedToBottom ()Z
 	public final fun moveSelectedToTop ()Z
 	public final fun persist ()V
@@ -373,10 +375,14 @@ public abstract interface class com/zhumeng/kanvas/drawing/DrawingTool {
 	public static synthetic fun draw-0lybdyQ$default (Lcom/zhumeng/kanvas/drawing/DrawingTool;Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;FILjava/lang/Object;)V
 	public abstract fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public abstract fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
+	public static synthetic fun isVisible-gnbCblk$default (Lcom/zhumeng/kanvas/drawing/DrawingTool;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;FILjava/lang/Object;)Z
 }
 
 public final class com/zhumeng/kanvas/drawing/DrawingTool$DefaultImpls {
 	public static synthetic fun draw-0lybdyQ$default (Lcom/zhumeng/kanvas/drawing/DrawingTool;Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;FILjava/lang/Object;)V
+	public static fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingTool;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
+	public static synthetic fun isVisible-gnbCblk$default (Lcom/zhumeng/kanvas/drawing/DrawingTool;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;FILjava/lang/Object;)Z
 }
 
 public final class com/zhumeng/kanvas/drawing/DrawingToolRegistry {
@@ -436,6 +442,7 @@ public final class com/zhumeng/kanvas/drawing/FibonacciRetracementDrawingTool : 
 	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
 	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 }
 
 public final class com/zhumeng/kanvas/drawing/HorizontalLineDrawingTool : com/zhumeng/kanvas/drawing/OnePointAxisDrawingTool {
@@ -444,12 +451,14 @@ public final class com/zhumeng/kanvas/drawing/HorizontalLineDrawingTool : com/zh
 	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
 	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 }
 
 public abstract class com/zhumeng/kanvas/drawing/OnePointAxisDrawingTool : com/zhumeng/kanvas/drawing/DrawingTool {
 	public static final field $stable I
 	public fun <init> ()V
 	protected final fun handle-fxi7HP0 (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Landroidx/compose/ui/geometry/Offset;ZLcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 	protected final fun point-GcwITfU (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;)Landroidx/compose/ui/geometry/Offset;
 }
 
@@ -459,6 +468,7 @@ public final class com/zhumeng/kanvas/drawing/RayLineDrawingTool : com/zhumeng/k
 	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
 	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 }
 
 public final class com/zhumeng/kanvas/drawing/RectangleDrawingTool : com/zhumeng/kanvas/drawing/TwoPointDrawingTool {
@@ -467,6 +477,7 @@ public final class com/zhumeng/kanvas/drawing/RectangleDrawingTool : com/zhumeng
 	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
 	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 }
 
 public final class com/zhumeng/kanvas/drawing/StraightLineDrawingTool : com/zhumeng/kanvas/drawing/TwoPointDrawingTool {
@@ -475,12 +486,14 @@ public final class com/zhumeng/kanvas/drawing/StraightLineDrawingTool : com/zhum
 	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
 	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 }
 
 public abstract class com/zhumeng/kanvas/drawing/TwoPointDrawingTool : com/zhumeng/kanvas/drawing/DrawingTool {
 	public static final field $stable I
 	public fun <init> ()V
 	protected final fun handles (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Ljava/util/List;ZLcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 	protected final fun projected (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;)Ljava/util/List;
 }
 
@@ -490,6 +503,7 @@ public final class com/zhumeng/kanvas/drawing/TwoPointLineDrawingTool : com/zhum
 	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
 	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 }
 
 public final class com/zhumeng/kanvas/drawing/VerticalLineDrawingTool : com/zhumeng/kanvas/drawing/OnePointAxisDrawingTool {
@@ -498,5 +512,6 @@ public final class com/zhumeng/kanvas/drawing/VerticalLineDrawingTool : com/zhum
 	public fun draw-0lybdyQ (Landroidx/compose/ui/graphics/drawscope/DrawScope;Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;ZLandroidx/compose/ui/geometry/Offset;Lcom/zhumeng/kanvas/drawing/DrawingRenderConfig;F)V
 	public fun getType ()Lcom/zhumeng/kanvas/drawing/DrawingTypeDescriptor;
 	public fun hitTest-Rg1IO4c (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;JF)Z
+	public fun isVisible-gnbCblk (Lcom/zhumeng/kanvas/drawing/DrawingOverlay;Lcom/zhumeng/kanvas/drawing/DrawingCoordinateSpace;Landroidx/compose/ui/geometry/Offset;F)Z
 }
 

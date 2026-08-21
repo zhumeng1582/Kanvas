@@ -42,6 +42,8 @@ enum class KlineDataDisposition {
     CachedInactiveSpec,
     IgnoredInactiveSpec,
     IgnoredStaleLoadMore,
+    /** A prepared page targeted an older series snapshot; recalculate it from the latest source. */
+    IgnoredStalePreparedData,
 }
 
 data class KlineDataResult(
@@ -369,6 +371,60 @@ class KlineController(
             // and lets the new page fill the historical-side blank space.
             viewport = resetOrClampViewport(
                 update.series,
+                current.viewport,
+                current.viewportConstraints,
+                reset = false,
+            ),
+            loadingState = KlineLoadingState.None,
+            loadMoreRequestId = null,
+            loadMoreError = null,
+            canLoadMoreOlder = hasMoreOlder,
+            revision = current.revision + if (update.changed) 1 else 0,
+        )
+        mutableState.value = next
+        rememberCurrent(next)
+        KlineDataResult(KlineDataDisposition.Applied, update)
+    }
+
+    /**
+     * Atomically commits a historical series prepared from [sourceSeries].
+     *
+     * This is the zero-copy counterpart of [completeLoadMore] for clients
+     * that append and calculate dependent data off the UI thread. The commit
+     * succeeds only while [sourceSeries] is still the controller's exact
+     * candle snapshot; a realtime update therefore cannot publish a candidate
+     * built from stale candles.
+     *
+     * [preparedSeries] must be the result of appending an older page to
+     * [sourceSeries]. Validation and overlap reconciliation remain the host's
+     * responsibility, matching [KlineSeries.appendOlder].
+     */
+    fun completeLoadMorePrepared(
+        requestId: Long,
+        sourceSeries: KlineSeries,
+        preparedSeries: KlineSeries,
+        hasMoreOlder: Boolean = true,
+    ): KlineDataResult = synchronized(lock) {
+        val current = mutableState.value
+        if (current.loadMoreRequestId != requestId) {
+            return KlineDataResult(KlineDataDisposition.IgnoredStaleLoadMore)
+        }
+        if (current.series !== sourceSeries) {
+            return KlineDataResult(KlineDataDisposition.IgnoredStalePreparedData)
+        }
+        require(preparedSeries.size >= sourceSeries.size) {
+            "Prepared historical series must not remove existing candles"
+        }
+        val changedRange = if (preparedSeries === sourceSeries) {
+            IndexRange.Empty
+        } else {
+            IndexRange(sourceSeries.size, preparedSeries.size)
+        }
+        val update = KlineSeriesUpdateResult(preparedSeries, changedRange)
+        val next = current.copy(
+            series = preparedSeries,
+            viewport = resetOrClampViewport(
+                preparedSeries,
                 current.viewport,
                 current.viewportConstraints,
                 reset = false,

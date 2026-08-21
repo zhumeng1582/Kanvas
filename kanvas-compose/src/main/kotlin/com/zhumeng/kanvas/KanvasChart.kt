@@ -5,6 +5,7 @@
 
 package com.zhumeng.kanvas
 
+import android.os.Trace
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -27,14 +28,21 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -43,6 +51,7 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.PaintingStyle
@@ -50,11 +59,14 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -123,6 +135,15 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
+
+private inline fun <T> traceKlineSection(name: String, block: () -> T): T {
+    Trace.beginSection(name)
+    return try {
+        block()
+    } finally {
+        Trace.endSection()
+    }
+}
 /** Resolved crosshair details sent to the host for custom tooltips or analytics. */
 
 data class KlineCrosshair(
@@ -142,6 +163,16 @@ typealias KlineTimeLabelFormatter = (KlineCandle, KlineInterval?) -> String
 
 private class DefaultKlineTimeLabelFormatter(locale: Locale) {
 
+    private data class CacheKey(
+        val timestampMillis: Long,
+        val interval: KlineInterval?,
+    )
+
+    private val cache = object : LinkedHashMap<CacheKey, String>(128, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<CacheKey, String>?): Boolean =
+            size > 512
+    }
+
     private val date = SimpleDateFormat("yyyy/M/d", locale)
 
     private val minute = SimpleDateFormat("M/d HH:mm", locale)
@@ -149,6 +180,8 @@ private class DefaultKlineTimeLabelFormatter(locale: Locale) {
     private val second = SimpleDateFormat("HH:mm:ss", locale)
 
     fun format(candle: KlineCandle, interval: KlineInterval?): String {
+        val key = CacheKey(candle.timestampMillis, interval)
+        cache[key]?.let { return it }
         val formatter = when (interval?.unit) {
             KlineTimeUnit.Day,
             KlineTimeUnit.Week,
@@ -160,7 +193,7 @@ private class DefaultKlineTimeLabelFormatter(locale: Locale) {
             -> minute
             else -> second
         }
-        return formatter.format(Date(candle.timestampMillis))
+        return formatter.format(Date(candle.timestampMillis)).also { formatted -> cache[key] = formatted }
     }
 }
 data class KlineValueRange(
@@ -189,8 +222,11 @@ internal data class KlineCrossTooltipPresentation(
     val items: List<KlineCrossTooltipItem>,
     val layout: KlineCrossTooltipLayout,
     val textLayouts: List<KlineCrossTooltipTextLayouts>,
+    val itemMeasurements: List<KlineCrossTooltipItemMeasurement>,
     val backgroundColor: Color,
     val textArea: KlineTextAreaRenderConfig?,
+    val useNativeSimpleText: Boolean = false,
+    val defaultTextColor: Color = Color.Unspecified,
 )
 
 private fun DrawingTextAreaStyle.toKlineTextAreaRenderConfig(): KlineTextAreaRenderConfig =
@@ -340,6 +376,11 @@ private enum class CrosshairSession {
 
 private class CrosshairSessionRef(var value: CrosshairSession? = null)
 
+private class CrossTooltipStableWidthRef(var value: Float? = null)
+
+/** Optional high-level state stream whose viewport is observed only by draw and pointer phases. */
+internal val LocalKanvasLiveChartState = staticCompositionLocalOf<State<KlineUiState>?> { null }
+
 private class KlineRangeUpdateRef(
     var series: KlineSeries? = null,
     var viewport: KlineViewport? = null,
@@ -347,12 +388,83 @@ private class KlineRangeUpdateRef(
     var realtimeMode: Boolean = false,
 )
 
+internal fun resolveKlineRealtimeRangeMode(
+    viewportChanged: Boolean,
+    latestCandleOnlyUpdate: Boolean,
+    seriesChanged: Boolean,
+    previousMode: Boolean,
+): Boolean = when {
+    // Viewport semantics win when one composition observes both a MOVE and a
+    // market tick; otherwise the realtime factor leaks into later draw-only
+    // MOVE frames and the Y axis trails the finger.
+    viewportChanged -> false
+    latestCandleOnlyUpdate -> true
+    seriesChanged -> false
+    else -> previousMode
+}
+
+/**
+ * Isolates series-only ticks during a pointer/fling session without changing
+ * viewport-driven auto-range semantics. Tokens keep a cancelled old fling
+ * from releasing a newer gesture's state.
+ */
+internal class KlineGestureValueRangeRef {
+    private var nextToken: Long = 0L
+    private var activeToken: Long? = null
+    private var activeViewport: KlineViewport? = null
+    private var lastPresented: KlineValueRange? = null
+    private var frozen: KlineValueRange? = null
+
+    val isActive: Boolean get() = activeToken != null
+
+    fun begin(viewport: KlineViewport): Long {
+        val token = ++nextToken
+        activeToken = token
+        activeViewport = viewport
+        frozen = lastPresented
+        return token
+    }
+
+    fun end(token: Long) {
+        if (activeToken != token) return
+        activeToken = null
+        activeViewport = null
+        frozen = null
+    }
+
+    fun hasViewportChanged(viewport: KlineViewport): Boolean =
+        activeToken != null && activeViewport != viewport
+
+    fun resolve(
+        target: KlineValueRange,
+        viewport: KlineViewport,
+        freezeRealtimeTick: Boolean,
+    ): KlineValueRange {
+        val viewportChanged = hasViewportChanged(viewport)
+        val shouldFreeze = activeToken != null && !viewportChanged && freezeRealtimeTick
+        val resolved = if (shouldFreeze) {
+            frozen ?: lastPresented ?: target
+        } else {
+            target
+        }
+        if (activeToken != null && !shouldFreeze) {
+            activeViewport = viewport
+            frozen = target
+        } else if (activeToken != null && frozen == null) {
+            frozen = resolved
+        }
+        lastPresented = resolved
+        return resolved
+    }
+}
+
 private data class KlineMainBodyLayerKey(
     val state: KlineUiState,
     val layout: KlineLayout,
     val renderRange: KlineMainRenderRange,
     val frames: List<KlineIndicatorRenderFrame>,
     val chartType: KlineChartType,
+    val mainChartRenderer: KlineMainChartRenderer?,
     val candleZIndex: Int,
     val style: KlineChartStyle,
     val renderConfig: KlineChartRenderConfig,
@@ -363,6 +475,190 @@ private data class KlineMainBodyLayerKey(
     val textMeasurer: TextMeasurer,
 )
 
+private data class KlineCachedIndicatorLayerKey(
+    val state: KlineUiState,
+    val layout: KlineLayout,
+    val renderRange: KlineMainRenderRange,
+    val frames: List<KlineIndicatorRenderFrame>,
+    val style: KlineChartStyle,
+    val grid: KlineGridRenderConfig,
+    val precision: Int,
+    val textMeasurer: TextMeasurer,
+)
+
+private class KlineIdentityRef(private val value: Any?) {
+    override fun equals(other: Any?): Boolean = other is KlineIdentityRef && value === other.value
+    override fun hashCode(): Int = System.identityHashCode(value)
+}
+
+private data class KlineIndicatorPatchInputKey(
+    val definition: IndicatorDefinition,
+    val renderer: KlineIdentityRef,
+    val output: KlineIdentityRef,
+    val colorIndex: Int,
+)
+
+/** Main-price layer dependencies excluding the pan-only right-edge offset. */
+private data class KlineTranslatableMainBodyLayerKey(
+    val series: KlineSeries,
+    val indicatorInputs: List<KlineIndicatorPatchInputKey>,
+    val layout: KlineLayout,
+    val renderRange: KlineMainRenderRange,
+    val candleWidthPx: Float,
+    val candleSpacingPx: Float,
+    val chartType: KlineChartType,
+    val candleZIndex: Int,
+    val style: KlineChartStyle,
+    val renderConfig: KlineChartRenderConfig,
+    val candleOverlayConfig: KlineCandleOverlayRenderConfig,
+    val candleGradients: KlineCandleGradientConfiguration,
+    val densityScale: Float,
+    val hideMainIndicators: Boolean,
+    val precision: Int,
+    val textMeasurer: TextMeasurer,
+)
+
+/** Dependencies of the built-in historical body; index zero is never recorded here. */
+private data class KlineHistoricalMainBodyLayerKey(
+    val series: KlineSeries,
+    val frames: List<KlineIndicatorRenderFrame>,
+    val layout: KlineLayout,
+    val renderRange: KlineMainRenderRange,
+    val candleWidthPx: Float,
+    val candleSpacingPx: Float,
+    val chartType: KlineChartType,
+    val candleZIndex: Int,
+    val style: KlineChartStyle,
+    val renderConfig: KlineChartRenderConfig,
+    val candleOverlayConfig: KlineCandleOverlayRenderConfig,
+    val candleGradients: KlineCandleGradientConfiguration,
+    val densityScale: Float,
+    val hideMainIndicators: Boolean,
+    val precision: Int,
+    val textMeasurer: TextMeasurer,
+) {
+    fun canReuseRecordedHistory(recorded: KlineHistoricalMainBodyLayerKey): Boolean =
+        copy(series = recorded.series, frames = recorded.frames) == recorded &&
+            (series === recorded.series || series.differsOnlyAtLatestFrom(recorded.series)) &&
+            frames.shareHistoricalInputsWith(recorded.frames)
+}
+
+private fun List<KlineIndicatorRenderFrame>.shareHistoricalInputsWith(
+    recorded: List<KlineIndicatorRenderFrame>,
+): Boolean {
+    if (size != recorded.size) return false
+    return indices.all { index ->
+        val currentFrame = this[index]
+        val recordedFrame = recorded[index]
+        val currentItem = currentFrame.item
+        val recordedItem = recordedFrame.item
+        currentItem.definition == recordedItem.definition &&
+            currentItem.renderer === recordedItem.renderer &&
+            currentItem.declarationOrder == recordedItem.declarationOrder &&
+            currentItem.colorIndex == recordedItem.colorIndex &&
+            currentFrame.context.copy(
+                state = recordedFrame.context.state,
+                output = recordedFrame.context.output,
+            ) == recordedFrame.context &&
+            when {
+                currentItem.output === recordedItem.output -> true
+                currentItem.output == null || recordedItem.output == null -> false
+                else -> currentItem.output.differsOnlyAtLatestFrom(recordedItem.output)
+            }
+    }
+}
+
+private data class KlineMainGridLayerKey(
+    val plotRect: Rect,
+    val style: KlineChartStyle,
+    val grid: KlineGridRenderConfig,
+    val textMeasurer: TextMeasurer,
+)
+
+private data class KlineMainAxisLayerKey(
+    val plotRect: Rect,
+    val valueRange: KlineValueRange,
+    val style: KlineChartStyle,
+    val grid: KlineGridRenderConfig,
+    val precision: Int,
+    val textMeasurer: TextMeasurer,
+)
+
+private data class KlineTranslatableTimeAxisLayerKey(
+    val series: KlineSeries,
+    val layout: KlineLayout,
+    val paintRange: IndexRange,
+    val candleWidthPx: Float,
+    val candleSpacingPx: Float,
+    val style: KlineChartStyle,
+    val interval: KlineInterval?,
+    val config: KlineTimeAxisRenderConfig,
+    val formatter: KlineIdentityRef,
+    val textMeasurer: TextMeasurer,
+) {
+    fun canReuseTimeline(recorded: KlineTranslatableTimeAxisLayerKey): Boolean =
+        copy(series = recorded.series) == recorded &&
+            (series === recorded.series || series.differsOnlyAtLatestFrom(recorded.series))
+}
+
+private data class KlineOrderMarkerLayerKey(
+    val placements: List<KlineOrderMarkerPlacement>,
+    val orderMarkerConfig: KlineOrderMarkerRenderConfig,
+    val style: KlineChartStyle,
+    val densityScale: Float,
+)
+
+private data class KlineLatestPriceLayerKey(
+    val latest: KlineCandle?,
+    val interval: KlineInterval?,
+    val countdownText: String?,
+    val plotRect: Rect,
+    val valueRange: KlineValueRange,
+    val viewport: KlineViewport,
+    val precision: Int,
+    val style: KlineChartStyle,
+    val config: KlineCandleOverlayRenderConfig,
+    val textMeasurer: TextMeasurer,
+)
+
+private data class KlineCandleOverlayLayerKey(
+    val content: Any?,
+    val layout: KlineLayout,
+    val renderRange: KlineMainRenderRange,
+    val chartType: KlineChartType,
+    val mainChartRenderer: KlineIdentityRef,
+    val style: KlineChartStyle,
+    val config: KlineCandleOverlayRenderConfig,
+    val densityScale: Float,
+    val precision: Int,
+    val textMeasurer: TextMeasurer,
+)
+
+private data class KlineCachedSubIndicatorLayerKey(
+    val state: KlineUiState,
+    val layout: KlineLayout,
+    val frames: Map<String, List<KlineIndicatorRenderFrame>>,
+    val style: KlineChartStyle,
+)
+
+private data class KlineHistoricalSubIndicatorLayerKey(
+    val series: KlineSeries,
+    val layout: KlineLayout,
+    val frames: Map<String, List<KlineIndicatorRenderFrame>>,
+    val style: KlineChartStyle,
+) {
+    fun canReuseRecordedHistory(recorded: KlineHistoricalSubIndicatorLayerKey): Boolean =
+        copy(series = recorded.series, frames = recorded.frames) == recorded &&
+            (series === recorded.series || series.differsOnlyAtLatestFrom(recorded.series)) &&
+            frames.shareHistoricalInputsWith(recorded.frames)
+}
+
+private fun Map<String, List<KlineIndicatorRenderFrame>>.shareHistoricalInputsWith(
+    recorded: Map<String, List<KlineIndicatorRenderFrame>>,
+): Boolean = keys == recorded.keys && all { (paneId, frames) ->
+    frames.shareHistoricalInputsWith(recorded.getValue(paneId))
+}
+
 /** Plain draw-phase holder; it never participates in Compose snapshot observation. */
 private class KlineRecordedLayerCache {
     private var key: Any? = null
@@ -370,24 +666,170 @@ private class KlineRecordedLayerCache {
 
     fun needsRecord(key: Any, size: IntSize): Boolean = this.key != key || this.size != size
 
+    fun recordedSizeFor(key: Any): IntSize? = size.takeIf { this.key == key }
+
     fun markRecorded(key: Any, size: IntSize) {
         this.key = key
         this.size = size
     }
 }
 
+private class KlineHistoricalSubRecordedLayerCache {
+    private var key: KlineHistoricalSubIndicatorLayerKey? = null
+    private var size: IntSize = IntSize.Zero
+
+    fun needsRecord(key: KlineHistoricalSubIndicatorLayerKey, size: IntSize): Boolean {
+        val recorded = this.key ?: return true
+        return this.size != size || !key.canReuseRecordedHistory(recorded)
+    }
+
+    fun markRecorded(key: KlineHistoricalSubIndicatorLayerKey, size: IntSize) {
+        this.key = key
+        this.size = size
+    }
+}
+
+private data class KlineCrossVerticalLayerKey(
+    val top: Float,
+    val bottom: Float,
+    val stroke: KlineStrokeStyle,
+    val color: Color,
+)
+
+private data class KlineCrossHorizontalLayerKey(
+    val left: Float,
+    val right: Float,
+    val stroke: KlineStrokeStyle,
+    val color: Color,
+)
+
+private data class KlineCrossPointLayerKey(
+    val config: KlineCrosshairRenderConfig,
+    val style: KlineChartStyle,
+)
+
+private data class KlineCrossPriceLayerKey(
+    val text: String,
+    val plotRect: Rect,
+    val config: KlineCrosshairRenderConfig,
+    val style: KlineChartStyle,
+    val textMeasurer: TextMeasurer,
+)
+
+private data class KlineCrossSelectionLayerKey(
+    val candleIndex: Int?,
+    val candle: KlineCandle?,
+    val previousCandle: KlineCandle?,
+    val snappedX: Float,
+    val stateSpec: KlineSpec?,
+    val layout: KlineLayout,
+    val config: KlineCrosshairRenderConfig,
+    val style: KlineChartStyle,
+    val tooltipPresentation: KlineIdentityRef,
+    val formatter: KlineIdentityRef,
+    val textMeasurer: TextMeasurer,
+)
+
+private data class KlineCrossTimeLayerKey(
+    val text: String,
+    val timeRect: Rect,
+    val config: KlineCrosshairRenderConfig,
+    val style: KlineChartStyle,
+    val textMeasurer: TextMeasurer,
+)
+
+/** Tracks the exact viewport used to record a horizontally translatable GraphicsLayer. */
+private class KlineTranslatableRecordedLayerCache {
+    private var key: Any? = null
+    private var size: IntSize = IntSize.Zero
+    private var recordedRightEdgeOffsetPx: Float = 0f
+
+    fun translationFor(
+        key: Any,
+        size: IntSize,
+        currentRightEdgeOffsetPx: Float,
+        maximumTranslationPx: Float,
+    ): Float? {
+        if (this.key != key || this.size != size) return null
+        val translation = currentRightEdgeOffsetPx - recordedRightEdgeOffsetPx
+        return translation.takeIf { abs(it) <= maximumTranslationPx }
+    }
+
+    fun markRecorded(key: Any, size: IntSize, rightEdgeOffsetPx: Float) {
+        this.key = key
+        this.size = size
+        recordedRightEdgeOffsetPx = rightEdgeOffsetPx
+    }
+}
+
+/** Latest-only market updates retain this cache even though their snapshot identity changes. */
+private class KlineHistoricalTranslatableRecordedLayerCache {
+    private var key: KlineHistoricalMainBodyLayerKey? = null
+    private var size: IntSize = IntSize.Zero
+    private var recordedRightEdgeOffsetPx: Float = 0f
+
+    fun translationFor(
+        key: KlineHistoricalMainBodyLayerKey,
+        size: IntSize,
+        currentRightEdgeOffsetPx: Float,
+        maximumTranslationPx: Float,
+    ): Float? {
+        val recordedKey = this.key ?: return null
+        if (this.size != size || !key.canReuseRecordedHistory(recordedKey)) return null
+        val translation = currentRightEdgeOffsetPx - recordedRightEdgeOffsetPx
+        return translation.takeIf { abs(it) <= maximumTranslationPx }
+    }
+
+    fun markRecorded(
+        key: KlineHistoricalMainBodyLayerKey,
+        size: IntSize,
+        rightEdgeOffsetPx: Float,
+    ) {
+        this.key = key
+        this.size = size
+        recordedRightEdgeOffsetPx = rightEdgeOffsetPx
+    }
+}
+
+private class KlineTimelineTranslatableRecordedLayerCache {
+    private var key: KlineTranslatableTimeAxisLayerKey? = null
+    private var size: IntSize = IntSize.Zero
+    private var recordedRightEdgeOffsetPx: Float = 0f
+
+    fun translationFor(
+        key: KlineTranslatableTimeAxisLayerKey,
+        size: IntSize,
+        currentRightEdgeOffsetPx: Float,
+        maximumTranslationPx: Float,
+    ): Float? {
+        val recordedKey = this.key ?: return null
+        if (this.size != size || !key.canReuseTimeline(recordedKey)) return null
+        val translation = currentRightEdgeOffsetPx - recordedRightEdgeOffsetPx
+        return translation.takeIf { abs(it) <= maximumTranslationPx }
+    }
+
+    fun markRecorded(
+        key: KlineTranslatableTimeAxisLayerKey,
+        size: IntSize,
+        rightEdgeOffsetPx: Float,
+    ) {
+        this.key = key
+        this.size = size
+        recordedRightEdgeOffsetPx = rightEdgeOffsetPx
+    }
+}
+
 /** Small cache shared by Canvas and pointer routes; base and Tips-inset layouts occupy two entries. */
 private class KlineMainRenderRangeCache(
-    private val capacity: Int = 2,
+    private val capacity: Int = 4,
 ) {
     private data class Entry(
-        val state: KlineUiState,
-        val layout: KlineLayout,
+        val series: KlineSeries,
         val panePlan: KlineIndicatorPanePlan,
-        val renderConfig: KlineChartRenderConfig,
+        val paintRange: IndexRange,
         val hideMainIndicators: Boolean,
-        val densityScale: Float,
-        val value: KlineMainRenderRange?,
+        val includeMainIndicators: Boolean,
+        val rawRange: KlineRawValueRange?,
     )
 
     private val entries = ArrayList<Entry>(capacity)
@@ -400,34 +842,64 @@ private class KlineMainRenderRangeCache(
         hideMainIndicators: Boolean,
         densityScale: Float,
     ): KlineMainRenderRange? {
-        if (entries.isNotEmpty() && entries.first().state !== state) entries.clear()
-        entries.firstOrNull { entry ->
-            entry.state === state &&
-                entry.layout == layout &&
-                entry.panePlan === panePlan &&
-                entry.renderConfig == renderConfig &&
-                entry.hideMainIndicators == hideMainIndicators &&
-                entry.densityScale == densityScale
-        }?.let { return it.value }
-        val value = resolveKlineMainRenderRange(
+        val paintRange = resolveKlineMainPaintRange(
             state = state,
             plotRect = layout.mainPane.plotRect,
             renderConfig = renderConfig,
-            indicatorPanePlan = panePlan,
-            hideMainIndicators = hideMainIndicators,
             densityScale = densityScale,
+        ) ?: return null
+        val includeMainIndicators = !hideMainIndicators &&
+            renderConfig.includeMainIndicatorsInValueRange
+        if (entries.isNotEmpty() &&
+            (entries.first().series !== state.series || entries.first().panePlan !== panePlan)
+        ) {
+            entries.clear()
+        }
+        val cachedEntry = entries.firstOrNull { entry ->
+            entry.series === state.series &&
+                entry.panePlan === panePlan &&
+                entry.paintRange == paintRange &&
+                entry.hideMainIndicators == hideMainIndicators &&
+                entry.includeMainIndicators == includeMainIndicators
+        }
+        val rawRange = if (cachedEntry != null) {
+            cachedEntry.rawRange
+        } else {
+            state.series.candles.rawValueRangeIncluding(
+                candleRange = paintRange,
+                mainOutputs = if (includeMainIndicators) panePlan.mainCombineOutputs else emptyList(),
+                paintRange = paintRange,
+                includeMainIndicators = includeMainIndicators,
+            ).also { calculated ->
+                if (entries.size == capacity) entries.removeAt(0)
+                entries += Entry(
+                    series = state.series,
+                    panePlan = panePlan,
+                    paintRange = paintRange,
+                    hideMainIndicators = hideMainIndicators,
+                    includeMainIndicators = includeMainIndicators,
+                    rawRange = calculated,
+                )
+            }
+        }
+        // Renderer-owned ranges retain exact viewport semantics. Only the
+        // potentially expensive immutable Candle/output scan is cached.
+        val rendererRanges = if (includeMainIndicators) {
+            panePlan.mainCombine.rendererValueRanges(
+                state = state,
+                paintRange = paintRange,
+                viewport = state.viewport,
+            )
+        } else {
+            emptyList()
+        }
+        return KlineMainRenderRange(
+            paintRange = paintRange,
+            valueRange = rawRange.normalizedIncluding(
+                rendererRanges = rendererRanges,
+                sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
+            ),
         )
-        if (entries.size == capacity) entries.removeAt(0)
-        entries += Entry(
-            state = state,
-            layout = layout,
-            panePlan = panePlan,
-            renderConfig = renderConfig,
-            hideMainIndicators = hideMainIndicators,
-            densityScale = densityScale,
-            value = value,
-        )
-        return value
     }
 }
 
@@ -435,6 +907,9 @@ private class KlineMainRenderRangeCache(
 private class KlineIndicatorRenderFramesCache(
     private val capacity: Int = 2,
 ) {
+    private val baseRangeCache = KlineIndicatorBaseRangeCache()
+    private val preparedLineCache = KlinePreparedIndicatorLineCache()
+
     private data class Entry(
         val state: KlineUiState,
         val layout: KlineLayout,
@@ -448,6 +923,8 @@ private class KlineIndicatorRenderFramesCache(
         val subPaneRangeSmoothers: KlinePaneValueRangeSmoothers?,
         val subPaneRangeResetKey: Any?,
         val subPaneRangeTransition: KlineValueRangeTransition?,
+        val prepareComputedLines: Boolean,
+        val includeSubPanes: Boolean,
         val value: KlineIndicatorRenderFrames,
     )
 
@@ -466,6 +943,8 @@ private class KlineIndicatorRenderFramesCache(
         subPaneRangeSmoothers: KlinePaneValueRangeSmoothers?,
         subPaneRangeResetKey: Any?,
         subPaneRangeTransition: KlineValueRangeTransition?,
+        prepareComputedLines: Boolean = true,
+        includeSubPanes: Boolean = true,
     ): KlineIndicatorRenderFrames {
         if (entries.isNotEmpty() && entries.first().state !== state) entries.clear()
         entries.firstOrNull { entry ->
@@ -480,7 +959,9 @@ private class KlineIndicatorRenderFramesCache(
                 entry.sameValueExpansionRatios == sameValueExpansionRatios &&
                 entry.subPaneRangeSmoothers === subPaneRangeSmoothers &&
                 entry.subPaneRangeResetKey == subPaneRangeResetKey &&
-                entry.subPaneRangeTransition == subPaneRangeTransition
+                entry.subPaneRangeTransition == subPaneRangeTransition &&
+                entry.prepareComputedLines == prepareComputedLines &&
+                entry.includeSubPanes == includeSubPanes
         }?.let { return it.value }
         val value = resolveKlineIndicatorRenderFrames(
             state = state,
@@ -495,6 +976,10 @@ private class KlineIndicatorRenderFramesCache(
             subPaneRangeSmoothers = subPaneRangeSmoothers,
             subPaneRangeResetKey = subPaneRangeResetKey,
             subPaneRangeTransition = subPaneRangeTransition,
+            prepareComputedLines = prepareComputedLines,
+            includeSubPanes = includeSubPanes,
+            baseRangeCache = baseRangeCache,
+            preparedLineCache = preparedLineCache,
         )
         if (entries.size == capacity) entries.removeAt(0)
         entries += Entry(
@@ -510,6 +995,8 @@ private class KlineIndicatorRenderFramesCache(
             subPaneRangeSmoothers = subPaneRangeSmoothers,
             subPaneRangeResetKey = subPaneRangeResetKey,
             subPaneRangeTransition = subPaneRangeTransition,
+            prepareComputedLines = prepareComputedLines,
+            includeSubPanes = includeSubPanes,
             value = value,
         )
         return value
@@ -517,13 +1004,17 @@ private class KlineIndicatorRenderFramesCache(
 }
 
 private data class KlineCrossTooltipPresentationCacheKey(
-    val crosshair: KlineIndicatorCrosshairContext,
-    val state: KlineUiState,
+    val candleIndex: Int?,
+    val candle: KlineCandle?,
+    val previousCandle: KlineCandle?,
+    val snappedX: Float,
+    val spec: KlineSpec?,
     val plotRect: Rect,
     val anchorRect: Rect,
     val config: KlineCrosshairRenderConfig,
     val style: KlineChartStyle,
     val densityScale: Float,
+    val fontScale: Float,
     val timeLabelFormatter: KlineTimeLabelFormatter,
     val provider: KlineCrossTooltipProvider?,
     val stableContentWidthPx: Float?,
@@ -547,6 +1038,105 @@ private class KlineCrossTooltipPresentationCache {
         this.key = key
         this.presentation = presentation
         resolved = true
+    }
+}
+
+/** Immutable geometry handed from the content Canvas to the Cross-only layer. */
+private data class KlineInteractionDrawGeometry(
+    val state: KlineUiState,
+    val layout: KlineLayout,
+    val valueRange: KlineValueRange,
+    val indicatorFrames: KlineIndicatorRenderFrames,
+)
+
+private data class KlineCrossPriceNodeContent(
+    val text: String,
+    val heightPx: Float,
+)
+
+private data class KlineCrossNodePosition(
+    val snappedX: Float,
+    val rawY: Float,
+)
+
+/** Plain draw-thread handoff; updating it must not schedule composition. */
+private class KlineInteractionDrawGeometryRef {
+    var value: KlineInteractionDrawGeometry? = null
+}
+
+/** Small per-chart LRU for the built-in computed Top Tips text measurements. */
+private class KlineBuiltInTopTipsPlanCache(
+    private val capacity: Int = 64,
+) {
+    private data class Entry(
+        val frames: List<KlineIndicatorRenderFrame>,
+        val chartLayout: KlineLayout,
+        val selectedIndex: Int,
+        val textMeasurer: TextMeasurer,
+        val stackMainTips: Boolean,
+        val plan: KlineIndicatorTopTipsRenderPlan,
+    )
+
+    private val entries = ArrayList<Entry>(capacity)
+
+    fun resolve(
+        frames: List<KlineIndicatorRenderFrame>,
+        chartLayout: KlineLayout,
+        selection: KlineIndicatorTopTipsSelection,
+        textMeasurer: TextMeasurer,
+        stackMainTips: Boolean,
+    ): KlineIndicatorTopTipsRenderPlan {
+        // This renderer's prepared output depends on the selected column index
+        // and immutable frame inputs only. The public cache policy deliberately
+        // does not imply the same contract for third-party Top Tips hooks.
+        if (frames.any { frame ->
+                val renderer = frame.item.renderer
+                renderer is KlineIndicatorTopTipsRenderer &&
+                    (renderer as? KlineImmutableTopTipsRenderer)?.hasImmutableTopTips != true
+            }
+        ) {
+            return resolveKlineIndicatorTopTipsRenderPlan(
+                frames = frames,
+                chartLayout = chartLayout,
+                selection = selection,
+                textMeasurer = textMeasurer,
+                stackMainTips = stackMainTips,
+            )
+        }
+        val selectedIndex = when (selection) {
+            is KlineIndicatorTopTipsSelection.Latest -> 0
+            is KlineIndicatorTopTipsSelection.Cross -> selection.crosshair.candleIndex ?: -1
+        }
+        val hit = entries.indexOfLast { entry ->
+            entry.frames === frames &&
+                entry.chartLayout == chartLayout &&
+                entry.selectedIndex == selectedIndex &&
+                entry.textMeasurer === textMeasurer &&
+                entry.stackMainTips == stackMainTips
+        }
+        if (hit >= 0) {
+            val entry = entries.removeAt(hit)
+            entries += entry
+            return entry.plan
+        }
+        val plan = resolveKlineIndicatorTopTipsRenderPlan(
+            frames = frames,
+            chartLayout = chartLayout,
+            selection = selection,
+            textMeasurer = textMeasurer,
+            stackMainTips = stackMainTips,
+        )
+        if (plan.entries.isEmpty()) return plan
+        if (entries.size == capacity) entries.removeAt(0)
+        entries += Entry(
+            frames = frames,
+            chartLayout = chartLayout,
+            selectedIndex = selectedIndex,
+            textMeasurer = textMeasurer,
+            stackMainTips = stackMainTips,
+            plan = plan,
+        )
+        return plan
     }
 }
 
@@ -659,6 +1249,97 @@ internal data class KlineMainRenderRange(
     val paintRange: IndexRange,
     val valueRange: KlineValueRange,
 )
+
+internal data class KlinePanPaintBucket(
+    val paintRange: IndexRange,
+    val horizontalOverscanPx: Float,
+)
+
+internal data class KlineRealtimeLayerRanges(
+    val historical: IndexRange,
+    val patch: IndexRange,
+)
+
+/**
+ * Index zero belongs exclusively to the live patch. Line-like painters retain
+ * index one in that patch as the minimum continuity point for the newest
+ * segment; the historical layer starts at one and remains immutable.
+ */
+internal fun resolveKlineRealtimeLayerRanges(
+    paintRange: IndexRange,
+    candleCount: Int,
+    lineLike: Boolean,
+): KlineRealtimeLayerRanges {
+    if (paintRange.isEmpty || candleCount <= 0) {
+        return KlineRealtimeLayerRanges(IndexRange.Empty, IndexRange.Empty)
+    }
+    val historicalStart = max(1, paintRange.startInclusive)
+    val historical = if (historicalStart < paintRange.endExclusive) {
+        IndexRange(historicalStart, paintRange.endExclusive)
+    } else {
+        IndexRange.Empty
+    }
+    val includesLatest = paintRange.startInclusive == 0 && paintRange.endExclusive > 0
+    val patchEnd = if (includesLatest) {
+        min(candleCount, if (lineLike) 2 else 1)
+    } else {
+        0
+    }
+    return KlineRealtimeLayerRanges(
+        historical = historical,
+        patch = if (patchEnd > 0) IndexRange(0, patchEnd) else IndexRange.Empty,
+    )
+}
+
+/** Keeps a wider geometry range stable for roughly half a screen of panning. */
+internal fun resolveKlinePanPaintBucket(
+    currentPaintRange: IndexRange,
+    candleCount: Int,
+    plotWidthPx: Float,
+    candleStepPx: Float,
+): KlinePanPaintBucket {
+    if (currentPaintRange.isEmpty || candleCount <= 0 || candleStepPx <= 0f) {
+        return KlinePanPaintBucket(currentPaintRange, 0f)
+    }
+    val halfScreenCandles = max(
+        8,
+        kotlin.math.ceil(plotWidthPx / candleStepPx / 2f).toInt(),
+    )
+    val bucketStart = (currentPaintRange.startInclusive / halfScreenCandles) * halfScreenCandles
+    // Derive the bucket's center capacity from fixed viewport geometry. The
+    // exact visible range can alternate between N and N+1 candles while a
+    // fractional pan crosses candle boundaries; using its current length
+    // would invalidate an otherwise identical bucket almost every frame.
+    val stablePaintCapacity = kotlin.math.ceil(plotWidthPx / candleStepPx)
+        .toInt() + 3
+    val start = (bucketStart - halfScreenCandles).coerceAtLeast(0)
+    val end = (
+        bucketStart +
+            halfScreenCandles +
+            stablePaintCapacity +
+            halfScreenCandles
+        ).coerceAtMost(candleCount)
+    return KlinePanPaintBucket(
+        paintRange = IndexRange(start, end),
+        horizontalOverscanPx = (halfScreenCandles + 2) * candleStepPx,
+    )
+}
+
+private fun resolveKlineMainPaintRange(
+    state: KlineUiState,
+    plotRect: Rect,
+    renderConfig: KlineChartRenderConfig,
+    densityScale: Float,
+): IndexRange? {
+    if (state.series.isEmpty || plotRect.width <= 0f || plotRect.height <= 0f) return null
+    val constraints = state.viewportConstraints
+        ?: renderConfig.viewport.constraints(plotRect.width, densityScale)
+    val visible = KlineViewportMath.visibleRange(state.series.size, state.viewport, constraints)
+    return IndexRange(
+        (visible.startInclusive - 1).coerceAtLeast(0),
+        (visible.endExclusive + 1).coerceAtMost(state.series.size),
+    )
+}
 /**
  * Resolves the shared Candle/Main-COMBINE scale once for Canvas, off-view hit
  * testing, and host Cross callbacks. Keeping these paths on one helper
@@ -674,14 +1355,12 @@ internal fun resolveKlineMainRenderRange(
     hideMainIndicators: Boolean,
     densityScale: Float,
 ): KlineMainRenderRange? {
-    if (state.series.isEmpty || plotRect.width <= 0f || plotRect.height <= 0f) return null
-    val constraints = state.viewportConstraints
-        ?: renderConfig.viewport.constraints(plotRect.width, densityScale)
-    val visible = KlineViewportMath.visibleRange(state.series.size, state.viewport, constraints)
-    val paintRange = IndexRange(
-        (visible.startInclusive - 1).coerceAtLeast(0),
-        (visible.endExclusive + 1).coerceAtMost(state.series.size),
-    )
+    val paintRange = resolveKlineMainPaintRange(
+        state = state,
+        plotRect = plotRect,
+        renderConfig = renderConfig,
+        densityScale = densityScale,
+    ) ?: return null
     val mainOutputsForRange = if (hideMainIndicators) {
         emptyList()
     } else {
@@ -696,15 +1375,19 @@ internal fun resolveKlineMainRenderRange(
             viewport = state.viewport,
         )
     }
-    val valueRange = state.series.candles
-        .subList(paintRange.startInclusive, paintRange.endExclusive)
-        .valueRangeIncluding(
-            mainOutputs = mainOutputsForRange,
-            paintRange = paintRange,
-            rendererRanges = mainRendererRanges,
-            sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
-            includeMainIndicators = renderConfig.includeMainIndicatorsInValueRange,
-        )
+    val valueRange = state.series.candles.rawValueRangeIncluding(
+        candleRange = paintRange,
+        mainOutputs = mainOutputsForRange,
+        paintRange = paintRange,
+        includeMainIndicators = renderConfig.includeMainIndicatorsInValueRange,
+    ).normalizedIncluding(
+        rendererRanges = if (renderConfig.includeMainIndicatorsInValueRange) {
+            mainRendererRanges
+        } else {
+            emptyList()
+        },
+        sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
+    )
     return KlineMainRenderRange(paintRange = paintRange, valueRange = valueRange)
 }
 
@@ -736,6 +1419,8 @@ fun KanvasChart(
     onMoveToInitialPosition: (() -> Unit)? = null,
     onCrosshairChange: (KlineCrosshair?) -> Unit = {},
     chartType: KlineChartType = KlineChartType.Bar(),
+    /** Optional extensible price renderer; non-null replaces the built-in Bar/Line painter. */
+    mainChartRenderer: KlineMainChartRenderer? = null,
     /** Main-pane z-index for the candle chart body. */
     candleZIndex: Int = -1,
     style: KlineChartStyle = KlineChartStyle(),
@@ -805,7 +1490,47 @@ fun KanvasChart(
     // evicting and remeasuring the same labels on every drag frame.
     val textMeasurer = rememberTextMeasurer(cacheSize = 64)
     val mainBodyLayer = rememberGraphicsLayer()
-    val mainBodyLayerCache = remember { KlineRecordedLayerCache() }
+    val mainBodyLayerCache = remember { KlineTranslatableRecordedLayerCache() }
+    val historicalMainBodyLayer = rememberGraphicsLayer()
+    val historicalMainBodyLayerCache = remember { KlineHistoricalTranslatableRecordedLayerCache() }
+    val realtimeMainPatchLayer = rememberGraphicsLayer()
+    val realtimeMainPatchLayerCache = remember { KlineTranslatableRecordedLayerCache() }
+    val cacheableIndicatorBelowLayer = rememberGraphicsLayer()
+    val cacheableIndicatorBelowLayerCache = remember { KlineRecordedLayerCache() }
+    val cacheableIndicatorAboveLayer = rememberGraphicsLayer()
+    val cacheableIndicatorAboveLayerCache = remember { KlineRecordedLayerCache() }
+    val crossVerticalLayer = rememberGraphicsLayer()
+    val crossVerticalLayerCache = remember { KlineRecordedLayerCache() }
+    val crossHorizontalLayer = rememberGraphicsLayer()
+    val crossHorizontalLayerCache = remember { KlineRecordedLayerCache() }
+    val crossPointLayer = rememberGraphicsLayer()
+    val crossPointLayerCache = remember { KlineRecordedLayerCache() }
+    val crossPriceLayer = rememberGraphicsLayer()
+    val crossPriceLayerCache = remember { KlineRecordedLayerCache() }
+    val crossSelectionLayer = rememberGraphicsLayer()
+    val crossSelectionLayerCache = remember { KlineRecordedLayerCache() }
+    val crossTimeLayer = rememberGraphicsLayer()
+    val crossTimeLayerCache = remember { KlineRecordedLayerCache() }
+    val gestureValueRangeRef = remember { KlineGestureValueRangeRef() }
+    var gestureValueRangeEpoch by remember { mutableLongStateOf(0L) }
+    val mainGridLayer = rememberGraphicsLayer()
+    val mainGridLayerCache = remember { KlineRecordedLayerCache() }
+    val mainAxisLayer = rememberGraphicsLayer()
+    val mainAxisLayerCache = remember { KlineRecordedLayerCache() }
+    val candleOverlayLayer = rememberGraphicsLayer()
+    val candleOverlayLayerCache = remember { KlineRecordedLayerCache() }
+    val builtInMainOverlayLayer = rememberGraphicsLayer()
+    val builtInMainOverlayLayerCache = remember { KlineRecordedLayerCache() }
+    val latestPriceLayer = rememberGraphicsLayer()
+    val latestPriceLayerCache = remember { KlineRecordedLayerCache() }
+    val cachedSubIndicatorLayer = rememberGraphicsLayer()
+    val cachedSubIndicatorLayerCache = remember { KlineHistoricalSubRecordedLayerCache() }
+    val realtimeSubIndicatorPatchLayer = rememberGraphicsLayer()
+    val realtimeSubIndicatorPatchLayerCache = remember { KlineRecordedLayerCache() }
+    val cacheableCustomSubIndicatorLayer = rememberGraphicsLayer()
+    val cacheableCustomSubIndicatorLayerCache = remember { KlineRecordedLayerCache() }
+    val timeAxisLayer = rememberGraphicsLayer()
+    val timeAxisLayerCache = remember { KlineTimelineTranslatableRecordedLayerCache() }
     val orderMarkerIndex = remember(orderMarkers) { KlineOrderMarkerIndex(orderMarkers) }
     val defaultTimeLabelFormatter = remember { DefaultKlineTimeLabelFormatter(Locale.getDefault()) }
     val drawingTimeLabelFormatter = remember { SimpleDateFormat("M/d HH:mm", Locale.getDefault()) }
@@ -815,34 +1540,34 @@ fun KanvasChart(
     val appliedTimeLabelFormatter: KlineTimeLabelFormatter = timeLabelFormatter
         ?: defaultTimeLabelFormatterFunction
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
-    var crosshair by remember { mutableStateOf<Offset?>(null) }
+    // This state is deliberately read only by pointer callbacks and the
+    // Canvas draw phase. Pointer movement then invalidates drawing without
+    // recomposing this large chart function on every pixel.
+    val crosshairState = remember { mutableStateOf<Offset?>(null) }
     val crosshairSessionRef = remember { CrosshairSessionRef() }
     var isChartZooming by remember { mutableStateOf(false) }
-    var verticalZoomInsetPx by remember { mutableStateOf(0f) }
-    var verticalZoomShiftPx by remember { mutableStateOf(0f) }
+    var verticalZoomInsetPx by remember { mutableFloatStateOf(0f) }
+    var verticalZoomShiftPx by remember { mutableFloatStateOf(0f) }
     var hoverInVerticalZoomTarget by remember { mutableStateOf(false) }
     var paneHeightOverridesPx by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
     var activeResizeBoundaryY by remember { mutableStateOf<Float?>(null) }
-    var panRangeSmoothFactor by remember { mutableStateOf(1f) }
+    var panRangeSmoothFactor by remember { mutableFloatStateOf(1f) }
     val mainRangeSmoother = remember { KlineValueRangeSmoother() }
     val rangeUpdateRef = remember { KlineRangeUpdateRef() }
     val previousRangeSeries = rangeUpdateRef.series
     val seriesChanged = previousRangeSeries !== state.series
     val viewportChanged = rangeUpdateRef.viewport != state.viewport
-    val latestCandleOnlyUpdate = seriesChanged &&
-        previousRangeSeries != null &&
-        previousRangeSeries.size == state.series.size &&
-        previousRangeSeries.latest?.timestampMillis == state.series.latest?.timestampMillis
-    val realtimeRangeMode = when {
-        latestCandleOnlyUpdate -> true
-        seriesChanged || viewportChanged -> false
-        else -> rangeUpdateRef.realtimeMode
-    }
-    val rangeSmoothFactor = if (realtimeRangeMode) {
-        min(panRangeSmoothFactor, renderConfig.latestCandleRangeSmoothFactor)
-    } else {
-        panRangeSmoothFactor
-    }
+    // Use KlineSeries' storage-identity proof instead of comparing size and
+    // timestamp. A same-sized rebuilt snapshot is structural data and must not
+    // be frozen like an in-place latest-candle replacement.
+    val latestCandleOnlyUpdate =
+        seriesChanged && state.series.differsOnlyAtLatestFrom(previousRangeSeries)
+    val realtimeRangeMode = resolveKlineRealtimeRangeMode(
+        viewportChanged = viewportChanged,
+        latestCandleOnlyUpdate = latestCandleOnlyUpdate,
+        seriesChanged = seriesChanged,
+        previousMode = rangeUpdateRef.realtimeMode,
+    )
     val animateHistoricalRange = shouldAnimateHistoricalRangeTransition(
         previousSeries = previousRangeSeries,
         series = state.series,
@@ -890,8 +1615,8 @@ fun KanvasChart(
     // Tooltip width is stored in physical pixels. Reset its Cross-session
     // cache whenever density or accessibility font scale changes so an old
     // pixel width cannot distort freshly measured text.
-    var crossTooltipStableContentWidthPx by remember(composeDensity.density, composeDensity.fontScale) {
-        mutableStateOf<Float?>(null)
+    val crossTooltipStableContentWidthRef = remember(composeDensity.density, composeDensity.fontScale) {
+        CrossTooltipStableWidthRef()
     }
     val axisWidthPx = with(composeDensity) { axisWidth.toPx() }
     val densityScale = composeDensity.density
@@ -900,6 +1625,7 @@ fun KanvasChart(
         candleWidthPx = state.viewport.candleWidthPx,
         minCandleWidthPx = renderConfig.viewport.resolvedMinCandleWidthPx(densityScale),
     ) ?: chartType
+    val isLineLikeMainChart = mainChartRenderer?.isLineLike ?: (appliedChartType is KlineChartType.Line)
     val appliedCandleZIndex = builtInIndicators?.candle?.zIndex ?: candleZIndex
     val appliedStyle = style.withCandleColorOverrides(
         builtInIndicators?.candle?.colorOverrides ?: KlineCandleColorOverrides(),
@@ -1000,11 +1726,13 @@ fun KanvasChart(
     // Pointer input must not restart after every StateFlow viewport update. It
     // reads these remembered holders during the gesture instead.
     val currentState = rememberUpdatedState(state)
+    val liveChartState = LocalKanvasLiveChartState.current
+    fun currentChartState(): KlineUiState = liveChartState?.value ?: currentState.value
     val currentRenderConfig = rememberUpdatedState(renderConfig)
     val currentOnUnsupportedIndicators = rememberUpdatedState(onUnsupportedIndicators)
     val currentOnLayoutChange = rememberUpdatedState(onLayoutChange)
     val currentPaneConfig = rememberUpdatedState(appliedPaneConfig)
-    val currentChartType = rememberUpdatedState(appliedChartType)
+    val currentIsLineLikeMainChart = rememberUpdatedState(isLineLikeMainChart)
     val currentStyle = rememberUpdatedState(appliedStyle)
     val currentCandleOverlayConfig = rememberUpdatedState(appliedCandleOverlayConfig)
     val currentHideMainIndicatorsInLineChartMode = rememberUpdatedState(hideMainIndicatorsInLineChartMode)
@@ -1021,7 +1749,7 @@ fun KanvasChart(
     val currentDrawingConfig = rememberUpdatedState(drawingConfig)
     val currentVerticalZoomHitRect = rememberUpdatedState(verticalZoomHitRect)
     val currentOnDoubleTap = rememberUpdatedState(onDoubleTap)
-    var countdownNowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    var countdownNowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val shouldTickCountdown =
         renderConfig.autoStartLastPriceCountdownTimer &&
         appliedCandleOverlayConfig.countdown.show &&
@@ -1067,7 +1795,102 @@ fun KanvasChart(
     val currentReportedLayout = rememberUpdatedState(reportedLayout)
     val mainRenderRangeCache = remember { KlineMainRenderRangeCache() }
     val indicatorRenderFramesCache = remember { KlineIndicatorRenderFramesCache() }
+    val translatableMainFramesCache = remember { KlineIndicatorRenderFramesCache() }
     val crossTooltipPresentationCache = remember { KlineCrossTooltipPresentationCache() }
+    val interactionDrawGeometryRef = remember { KlineInteractionDrawGeometryRef() }
+    val builtInTopTipsPlanCache = remember { KlineBuiltInTopTipsPlanCache() }
+    val independentCrossNodesEnabled = !appliedPaneConfig.drawBelowTipsArea
+    val crossPriceNodeHeightPx = remember(
+        renderConfig.crosshair.ticksText,
+        appliedStyle.crossTextColor,
+        textMeasurer,
+        densityScale,
+    ) {
+        textMeasurer.measure(
+            text = AnnotatedString("0"),
+            style = renderConfig.crosshair.ticksText.toComposeTextStyle(appliedStyle.crossTextColor),
+            maxLines = renderConfig.crosshair.ticksText.maxLines,
+            overflow = TextOverflow.Ellipsis,
+        ).size.height +
+            (renderConfig.crosshair.ticksText.padding.topPx +
+                renderConfig.crosshair.ticksText.padding.bottomPx) * densityScale
+    }
+    val quantizedCrossSelectionPosition by remember(
+        independentCrossNodesEnabled,
+        crossTooltipProvider,
+        appliedTimeLabelFormatter,
+        defaultTimeLabelFormatterFunction,
+    ) {
+        derivedStateOf {
+            val raw = crosshairState.value ?: return@derivedStateOf null
+            val geometry = interactionDrawGeometryRef.value ?: return@derivedStateOf raw
+            val current = liveChartState?.value ?: state
+            val plotRect = geometry.layout.mainPane.plotRect
+            val crosshair = resolveKlineIndicatorCrosshairContext(
+                inputPosition = raw,
+                state = current,
+                plotRect = plotRect,
+                renderConfig = currentRenderConfig.value.crosshair,
+                crosshairRightPx = plotRect.right,
+            ) ?: return@derivedStateOf raw
+            val frames = geometry.indicatorFrames.main.asSequence() +
+                geometry.indicatorFrames.subByPane.values.asSequence().flatten()
+            val requiresRawPosition =
+                !independentCrossNodesEnabled ||
+                    crossTooltipProvider != null ||
+                    appliedTimeLabelFormatter !== defaultTimeLabelFormatterFunction ||
+                    frames.any { frame ->
+                        frame.item.renderer.hasCrossCapability() ||
+                            frame.item.renderer.hasDynamicTopTipsCapability()
+                    } ||
+                    raw.y !in plotRect.top..plotRect.bottom
+            if (requiresRawPosition) {
+                raw
+            } else {
+                Offset(crosshair.position.x, plotRect.center.y)
+            }
+        }
+    }
+    val crossPriceNodeContent by remember(
+        independentCrossNodesEnabled,
+        renderConfig.crosshair,
+        appliedStyle,
+        densityScale,
+        textMeasurer,
+    ) {
+        derivedStateOf {
+            if (!independentCrossNodesEnabled) return@derivedStateOf null
+            val raw = crosshairState.value ?: return@derivedStateOf null
+            val geometry = interactionDrawGeometryRef.value ?: return@derivedStateOf null
+            val plotRect = geometry.layout.mainPane.plotRect
+            val rawY = raw.y.coerceIn(plotRect.top, plotRect.bottom)
+            val precision = geometry.state.spec?.precision ?: KlineSpec.DefaultPrecision
+            val text = formatPrice(geometry.valueRange.valueAt(rawY, plotRect), precision)
+            KlineCrossPriceNodeContent(
+                text = text,
+                heightPx = crossPriceNodeHeightPx,
+            )
+        }
+    }
+    val crossNodePosition by remember(independentCrossNodesEnabled, reportedLayout) {
+        derivedStateOf {
+            if (!independentCrossNodesEnabled) return@derivedStateOf null
+            val raw = crosshairState.value ?: return@derivedStateOf null
+            val layout = reportedLayout ?: return@derivedStateOf null
+            val current = liveChartState?.value ?: state
+            val crosshair = resolveKlineIndicatorCrosshairContext(
+                inputPosition = raw,
+                state = current,
+                plotRect = layout.mainPane.plotRect,
+                renderConfig = currentRenderConfig.value.crosshair,
+                crosshairRightPx = layout.mainPane.plotRect.right,
+            ) ?: return@derivedStateOf null
+            KlineCrossNodePosition(
+                snappedX = crosshair.position.x,
+                rawY = crosshair.rawPosition.y,
+            )
+        }
+    }
     // A parent may replace its callback after the layout has stabilized; send
     // the current value to the new observer as well as on geometry changes.
     LaunchedEffect(reportedLayout, currentOnLayoutChange.value) {
@@ -1092,12 +1915,12 @@ fun KanvasChart(
     }
 
     fun updateCrosshair(position: Offset?) {
-        crosshair = position
+        crosshairState.value = position
         if (position == null) {
             crosshairSessionRef.value = null
-            crossTooltipStableContentWidthPx = null
+            crossTooltipStableContentWidthRef.value = null
         }
-        val current = currentState.value
+        val current = currentChartState()
         val activeAndLayout = if (position != null && canvasSize != IntSize.Zero) {
             resolveCurrentLayout()?.let { layout -> currentIndicatorPanePlan.value to layout }
         } else {
@@ -1111,7 +1934,7 @@ fun KanvasChart(
                 panePlan = active,
                 renderConfig = currentRenderConfig.value,
                 hideMainIndicators = currentHideMainIndicatorsInLineChartMode.value &&
-                    currentChartType.value is KlineChartType.Line,
+                    currentIsLineLikeMainChart.value,
                 densityScale = currentDensityScale.value,
             )
         }
@@ -1140,7 +1963,7 @@ fun KanvasChart(
             panePlan = active,
             renderConfig = currentRenderConfig.value,
             hideMainIndicators = currentHideMainIndicatorsInLineChartMode.value &&
-                currentChartType.value is KlineChartType.Line,
+                currentIsLineLikeMainChart.value,
             densityScale = currentDensityScale.value,
         ) ?: return null
         return DrawingCoordinateSpace(
@@ -1176,19 +1999,24 @@ fun KanvasChart(
                 style = style,
                 textMeasurer = textMeasurer,
                 densityScale = densityScale,
+                fontScale = composeDensity.fontScale,
                 timeLabelFormatter = timeLabelFormatter,
                 provider = provider,
                 stableContentWidthPx = stableContentWidthPx,
             )
         }
         val key = KlineCrossTooltipPresentationCacheKey(
-            crosshair = crosshair,
-            state = state,
+            candleIndex = crosshair.candleIndex,
+            candle = crosshair.candle,
+            previousCandle = crosshair.previousCandle,
+            snappedX = crosshair.position.x,
+            spec = state.spec,
             plotRect = plotRect,
             anchorRect = anchorRect,
             config = config,
             style = style,
             densityScale = densityScale,
+            fontScale = composeDensity.fontScale,
             timeLabelFormatter = timeLabelFormatter,
             provider = provider,
             stableContentWidthPx = stableContentWidthPx,
@@ -1203,18 +2031,25 @@ fun KanvasChart(
             style = style,
             textMeasurer = textMeasurer,
             densityScale = densityScale,
+            fontScale = composeDensity.fontScale,
             timeLabelFormatter = timeLabelFormatter,
             provider = provider,
             stableContentWidthPx = stableContentWidthPx,
         )
         crossTooltipPresentationCache.update(key, presentation)
+        presentation?.layout?.contentWidthPx?.let { contentWidth ->
+            crossTooltipStableContentWidthRef.value = max(
+                crossTooltipStableContentWidthRef.value ?: 0f,
+                contentWidth,
+            )
+        }
         return presentation
     }
     /** Rebuilds Cross tooltip geometry for both Canvas stability tracking and pointer routing. */
 
     fun resolveCurrentCrossTooltipPresentation(): KlineCrossTooltipPresentation? {
-        val position = crosshair ?: return null
-        val current = currentState.value
+        val position = crosshairState.value ?: return null
+        val current = currentChartState()
         val layout = resolveCurrentLayout() ?: return null
         val config = currentRenderConfig.value.crosshair
         val crosshairContext = resolveKlineIndicatorCrosshairContext(
@@ -1234,7 +2069,7 @@ fun KanvasChart(
             densityScale = currentDensityScale.value,
             timeLabelFormatter = currentTimeLabelFormatter.value,
             provider = currentCrossTooltipProvider.value,
-            stableContentWidthPx = crossTooltipStableContentWidthPx,
+            stableContentWidthPx = crossTooltipStableContentWidthRef.value,
         )
     }
     /** Kanvas consumes a visible custom-tooltip row before all chart-level tap routes. */
@@ -1258,7 +2093,7 @@ fun KanvasChart(
         val density = currentDensityScale.value
         val layout = resolveCurrentLayout() ?: return null
         val hideMain = currentHideMainIndicatorsInLineChartMode.value &&
-            currentChartType.value is KlineChartType.Line
+            currentIsLineLikeMainChart.value
         val mainRange = mainRenderRangeCache.resolve(
             state = current,
             layout = layout,
@@ -1285,9 +2120,9 @@ fun KanvasChart(
     /** Dispatches confirmed pointer taps before the Cross persistent-toggle route. */
 
     fun dispatchCurrentIndicatorTap(position: Offset): Boolean {
-        val current = currentState.value
+        val current = currentChartState()
         val (layout, frames) = resolveCurrentIndicatorFrames(current) ?: return false
-        val activeCrosshair = crosshair?.let { crossPosition ->
+        val activeCrosshair = crosshairState.value?.let { crossPosition ->
             resolveKlineIndicatorCrosshairContext(
                 inputPosition = crossPosition,
                 state = current,
@@ -1310,7 +2145,7 @@ fun KanvasChart(
      */
 
     fun resolveOffViewLatestPriceHitTarget(): Rect? {
-        val current = currentState.value
+        val current = currentChartState()
         if (current.series.isEmpty) return null
         val layout = resolveCurrentLayout() ?: return null
         val plotRect = layout.mainPane.plotRect
@@ -1323,7 +2158,7 @@ fun KanvasChart(
             panePlan = active,
             renderConfig = currentRenderConfig.value,
             hideMainIndicators = currentHideMainIndicatorsInLineChartMode.value &&
-                currentChartType.value is KlineChartType.Line,
+                currentIsLineLikeMainChart.value,
             densityScale = density,
         )?.valueRange ?: return null
         val visual = resolveLatestPriceMarkerVisual(
@@ -1348,7 +2183,7 @@ fun KanvasChart(
             callback()
             return
         }
-        val current = currentState.value
+        val current = currentChartState()
         if (current.series.isEmpty) return
         val layout = resolveCurrentLayout() ?: return
         val constraints = current.viewportConstraints
@@ -1375,7 +2210,7 @@ fun KanvasChart(
         val selectedDrawing = currentDrawingController.value?.takeIf {
             currentDrawingConfig.value.enabled && currentDrawingConfig.value.allowSelectWhenExited
         }?.let { controller ->
-            resolveDrawingSpace(currentState.value)?.let { space ->
+            resolveDrawingSpace(currentChartState())?.let { space ->
                 controller.select(
                     position = position,
                     space = space,
@@ -1402,7 +2237,7 @@ fun KanvasChart(
     }
 
     fun updateNonTouchViewport(position: Offset, scrollDelta: Offset) {
-        val current = currentState.value
+        val current = currentChartState()
         val layout = resolveCurrentLayout() ?: return
         val gesture = currentRenderConfig.value.gesture
         val constraints = current.viewportConstraints
@@ -1436,28 +2271,6 @@ fun KanvasChart(
     }
     LaunchedEffect(state.interactionEpoch) {
         updateCrosshair(null)
-    }
-    // Kanvas keeps the widest content observed in one Cross session. Do this
-    // after composition, never from DrawScope, so Canvas and pointer routes
-    // can deterministically re-resolve the same immutable geometry.
-    LaunchedEffect(
-        crosshair,
-        state,
-        renderConfig.crosshair,
-        crossTooltipProvider,
-        appliedStyle,
-        appliedTimeLabelFormatter,
-        canvasSize,
-        composeDensity.density,
-        composeDensity.fontScale,
-    ) {
-        if (crosshair == null) {
-            crossTooltipStableContentWidthPx = null
-        } else {
-            resolveCurrentCrossTooltipPresentation()?.layout?.contentWidthPx?.let { contentWidth ->
-                crossTooltipStableContentWidthPx = max(crossTooltipStableContentWidthPx ?: 0f, contentWidth)
-            }
-        }
     }
     LaunchedEffect(canvasSize, renderConfig.viewport, densityScale, axisWidthPx, appliedPaneConfig) {
         if (canvasSize.width > 0) {
@@ -1511,6 +2324,7 @@ fun KanvasChart(
         modifier
     }
     val chartModifier = magnifierModifier
+        .preferredFrameRate(renderConfig.preferredFrameRate)
         .focusRequester(focusRequester)
         .focusable()
         .onKeyEvent { event ->
@@ -1523,7 +2337,7 @@ fun KanvasChart(
                 resetVerticalZoom()
                 return@onKeyEvent true
             }
-            val current = currentState.value
+            val current = currentChartState()
             if (current.series.isEmpty || canvasSize.width <= 0) return@onKeyEvent false
             val horizontal = resolveMainPlotHorizontalGeometry(
                 canvasWidthPx = canvasSize.width.toFloat(),
@@ -1679,7 +2493,7 @@ fun KanvasChart(
                     // current fling or start a gesture against a data boundary
                     // that is about to change. awaitEachGesture drains the
                     // remaining pointer events before beginning another turn.
-                    val stateAtDown = currentState.value
+                    val stateAtDown = currentChartState()
                     if (
                         shouldShowKlineLoadingOverlay(
                             stateAtDown.loadingState,
@@ -1688,6 +2502,8 @@ fun KanvasChart(
                     ) {
                         return@also
                     }
+                    val gestureValueRangeToken = gestureValueRangeRef.begin(stateAtDown.viewport)
+                    gestureValueRangeEpoch++
                     // Size, density and viewport constraints cannot meaningfully change in the
                     // middle of one pointer stream. Resolve them once here instead of rebuilding
                     // horizontal geometry and constraints for every Move event (and every fling
@@ -1715,6 +2531,8 @@ fun KanvasChart(
                     var accumulatedPan = Offset.Zero
                     var viewportDuringGesture: KlineViewport? = null
                     var gestureStartViewport: KlineViewport? = null
+                    var pendingViewportCommit: KlineViewport? = null
+                    var viewportCommitJob: Job? = null
                     var pointerActive = true
                     var completedPanVelocityX = 0f
                     var completedWithPan = false
@@ -1739,13 +2557,34 @@ fun KanvasChart(
                             }
                         }
 
+                        fun commitPendingViewport() {
+                            val next = pendingViewportCommit ?: return
+                            pendingViewportCommit = null
+                            val current = currentChartState()
+                            if (next != current.viewport) {
+                                traceKlineSection("Kanvas.viewport.commit") {
+                                    currentOnViewportChange.value(next)
+                                }
+                            }
+                        }
+
+                        fun scheduleViewportCommit(next: KlineViewport) {
+                            pendingViewportCommit = next
+                            if (viewportCommitJob?.isActive == true) return
+                            viewportCommitJob = this@outer.launch {
+                                withFrameNanos { }
+                                commitPendingViewport()
+                                viewportCommitJob = null
+                            }
+                        }
+
                         fun updateViewport(
                             pan: Offset,
                             zoom: Float,
                             focal: Offset,
                             scaleOnly: Boolean,
                         ): KlineViewport? {
-                            val current = currentState.value
+                            val current = currentChartState()
                             if (canvasSize.width <= 0 || canvasSize.height <= 0 || current.series.isEmpty) {
                                 return viewportDuringGesture
                             }
@@ -1782,12 +2621,12 @@ fun KanvasChart(
                                 gestureConstraints,
                             )
                             viewportDuringGesture = next
-                            if (next != old) currentOnViewportChange.value(next)
+                            if (next != old) scheduleViewportCommit(next)
                             return next
                         }
 
                         fun requestLoadMoreFor(projectedViewport: KlineViewport) {
-                            val current = currentState.value
+                            val current = currentChartState()
                             val config = currentRenderConfig.value
                             if (
                                 !config.gesture.autoLoadMore ||
@@ -1821,7 +2660,7 @@ fun KanvasChart(
                         val drawingSpaceAtStart = if (
                             drawingAtStart != null && currentDrawingConfig.value.enabled
                         ) {
-                            resolveDrawingSpace(currentState.value)
+                            resolveDrawingSpace(currentChartState())
                         } else {
                             null
                         }
@@ -1994,14 +2833,14 @@ fun KanvasChart(
                                         }
                                         PointerGestureOwner.DrawingEdit -> {
                                             val controller = currentDrawingController.value
-                                            val space = resolveDrawingSpace(currentState.value)
+                                            val space = resolveDrawingSpace(currentChartState())
                                             when (controller?.snapshot?.state) {
                                                 is DrawingState.Drawing -> {
                                                     val point = space?.let {
                                                         controller.snap(
                                                             position = latestPosition,
                                                             space = it,
-                                                            candles = currentState.value.series.candles,
+                                                            candles = currentChartState().series.candles,
                                                             minDistancePx =
                                                                 currentDrawingConfig.value.magnetDistancePx *
                                                                     currentDensityScale.value,
@@ -2027,7 +2866,7 @@ fun KanvasChart(
                                             completedPanVelocityX = velocityTracker.calculateVelocity().x
                                         }
                                         PointerGestureOwner.Pinch -> {
-                                            requestLoadMoreFor(viewportDuringGesture ?: currentState.value.viewport)
+                                            requestLoadMoreFor(viewportDuringGesture ?: currentChartState().viewport)
                                         }
                                         PointerGestureOwner.PaneResize,
                                         PointerGestureOwner.VerticalZoom,
@@ -2091,7 +2930,7 @@ fun KanvasChart(
                                     }
                                     PointerGestureOwner.DrawingEdit -> {
                                         val controller = currentDrawingController.value
-                                        val space = resolveDrawingSpace(currentState.value)
+                                        val space = resolveDrawingSpace(currentChartState())
                                         if (
                                             controller?.snapshot?.state is DrawingState.Editing &&
                                             space != null
@@ -2099,7 +2938,7 @@ fun KanvasChart(
                                             val moved = controller.snap(
                                                 position = latestPosition,
                                                 space = space,
-                                                candles = currentState.value.series.candles,
+                                                candles = currentChartState().series.candles,
                                                 minDistancePx =
                                                     currentDrawingConfig.value.magnetDistancePx *
                                                         currentDensityScale.value,
@@ -2114,7 +2953,7 @@ fun KanvasChart(
                                     }
                                     PointerGestureOwner.DrawingMove -> {
                                         val controller = currentDrawingController.value
-                                        val space = resolveDrawingSpace(currentState.value)
+                                        val space = resolveDrawingSpace(currentChartState())
                                         val currentPoint = space?.unproject(latestPosition)
                                         val previousPoint = drawingMoveLastPoint
                                         if (controller != null && currentPoint != null && previousPoint != null) {
@@ -2199,6 +3038,12 @@ fun KanvasChart(
                             }
                         } finally {
                             pointerActive = false
+                            viewportCommitJob?.cancel()
+                            viewportCommitJob = null
+                            // Preserve the exact final gesture position. MOVE events are
+                            // frame-coalesced, while pointer-up performs one final commit
+                            // before a possible fling starts from the same viewport.
+                            commitPendingViewport()
                             isChartZooming = verticalZoomInsetPx > 0f
                             activeResizeBoundaryY = null
                             cancelLongPress()
@@ -2207,7 +3052,7 @@ fun KanvasChart(
                         }
                         if (completedWithPan) {
                             val gesture = currentRenderConfig.value.gesture
-                            val gestureEndViewport = viewportDuringGesture ?: currentState.value.viewport
+                            val gestureEndViewport = viewportDuringGesture ?: currentChartState().viewport
                             val inertia = if (gesture.enableInertialPan) {
                                 KlineInteractionMath.inertialPanSpec(
                                     velocityPxPerSecond = resolveKlineInertialVelocity(
@@ -2225,6 +3070,8 @@ fun KanvasChart(
                             if (inertia == null) {
                                 panRangeSmoothFactor = 1f
                                 requestLoadMoreFor(gestureEndViewport)
+                                gestureValueRangeRef.end(gestureValueRangeToken)
+                                gestureValueRangeEpoch++
                             } else {
                                 val gestureEndOffsetPx = gestureEndViewport.rightEdgeOffsetPx
                                 // Keep this fling bounded by the data that existed when the
@@ -2232,7 +3079,7 @@ fun KanvasChart(
                                 // the animation is still running; using the new series size
                                 // would expand the boundary mid-flight and fling straight into
                                 // the newly loaded page instead of preserving the load anchor.
-                                val inertialPanCandleCount = currentState.value.series.size
+                                val inertialPanCandleCount = currentChartState().series.size
                                 requestLoadMoreFor(
                                     gestureEndViewport.copy(
                                         rightEdgeOffsetPx = gestureEndOffsetPx + inertia.distancePx,
@@ -2262,7 +3109,7 @@ fun KanvasChart(
                                                     (1f - tolerance.effectivePanSmoothFactor) *
                                                     ((progress - convergence) / (1f - convergence))
                                             }
-                                            val current = currentState.value
+                                            val current = currentChartState()
                                             if (current.series.isEmpty) return@animate
                                             val old = viewportDuringGesture ?: gestureEndViewport
                                             val next = KlineInteractionMath.clamp(
@@ -2282,9 +3129,14 @@ fun KanvasChart(
                                         // caused a second draw/layout jump, especially when the
                                         // offset was clamped at the right edge.
                                         panRangeSmoothFactor = 1f
+                                        gestureValueRangeRef.end(gestureValueRangeToken)
+                                        gestureValueRangeEpoch++
                                     }
                                 }
                             }
+                        } else {
+                            gestureValueRangeRef.end(gestureValueRangeToken)
+                            gestureValueRangeEpoch++
                         }
                 }
             }
@@ -2300,6 +3152,8 @@ fun KanvasChart(
         timeAxisHeightPx,
         densityScale,
         indicatorSubPaneSpecs,
+        renderConfig.crosshair,
+        crossPriceNodeHeightPx,
     ) {
         MeasurePolicy { measurables, constraints ->
             val width = (if (constraints.hasBoundedWidth) constraints.maxWidth else constraints.minWidth)
@@ -2333,11 +3187,41 @@ fun KanvasChart(
                 mainRect.width.roundToInt().coerceAtLeast(0),
                 mainRect.height.roundToInt().coerceAtLeast(0),
             )
+            val crossConfig = renderConfig.crosshair
+            val crossStrokePadding = max(
+                1f,
+                crossConfig.stroke.widthPx * densityScale / 2f + 1f,
+            )
+            val crossVerticalConstraints = Constraints.fixed(
+                kotlin.math.ceil(crossStrokePadding * 2f).toInt().coerceAtLeast(1),
+                kotlin.math.ceil(measuredLayout.chartRect.height + crossStrokePadding * 2f)
+                    .toInt()
+                    .coerceAtLeast(1),
+            )
+            val crossHorizontalConstraints = Constraints.fixed(
+                kotlin.math.ceil(measuredLayout.mainPane.plotRect.width + crossStrokePadding * 2f)
+                    .toInt()
+                    .coerceAtLeast(1),
+                kotlin.math.ceil(crossStrokePadding * 2f).toInt().coerceAtLeast(1),
+            )
+            val crossPointPadding = (
+                crossConfig.pointRadiusPx + crossConfig.pointBorderWidthPx / 2f
+                ) * densityScale + 1f
+            val crossPointSize = kotlin.math.ceil(crossPointPadding * 2f).toInt().coerceAtLeast(1)
+            val crossPointConstraints = Constraints.fixed(crossPointSize, crossPointSize)
+            val crossPriceConstraints = Constraints.fixed(
+                kotlin.math.ceil(measuredLayout.mainPane.plotRect.width).toInt().coerceAtLeast(1),
+                kotlin.math.ceil(crossPriceNodeHeightPx).toInt().coerceAtLeast(1),
+            )
             val placeables = measurables.map { measurable ->
                 val isMainSlot = measurable.layoutId == "main-background" ||
                     measurable.layoutId == "main-foreground"
                 val childConstraintsForId = when {
                     isMainSlot -> mainConstraints
+                    measurable.layoutId == "cross-vertical-node" -> crossVerticalConstraints
+                    measurable.layoutId == "cross-horizontal-node" -> crossHorizontalConstraints
+                    measurable.layoutId == "cross-point-node" -> crossPointConstraints
+                    measurable.layoutId == "cross-price-node" -> crossPriceConstraints
                     measurable.layoutId == "vertical-zoom-exit" -> Constraints(
                         maxWidth = mainRect.width.roundToInt().coerceAtLeast(0),
                         maxHeight = mainRect.height.roundToInt().coerceAtLeast(0),
@@ -2350,12 +3234,18 @@ fun KanvasChart(
                 placeables.forEach { (placeable, isMainSlot, layoutId) ->
                     val x = when {
                         isMainSlot -> mainRect.left.roundToInt()
+                        layoutId == "cross-horizontal-node" ->
+                            (measuredLayout.mainPane.plotRect.left - crossStrokePadding).roundToInt()
+                        layoutId == "cross-price-node" ->
+                            measuredLayout.mainPane.plotRect.left.roundToInt()
                         layoutId == "vertical-zoom-exit" ->
                             (mainRect.right - placeable.width - 8f * densityScale).roundToInt()
                         else -> 0
                     }
                     val y = when {
                         isMainSlot -> mainRect.top.roundToInt()
+                        layoutId == "cross-vertical-node" ->
+                            (measuredLayout.chartRect.top - crossStrokePadding).roundToInt()
                         layoutId == "vertical-zoom-exit" ->
                             (mainRect.bottom - placeable.height - 8f * densityScale).roundToInt()
                         else -> 0
@@ -2365,6 +3255,396 @@ fun KanvasChart(
             }
         }
     }
+
+    /**
+     * Paints state that changes at pointer frequency. In the default layout
+     * this runs in a transparent sibling Canvas, so Cross movement does not
+     * invalidate candle, time-axis, sub-pane, drawing, or watermark content.
+     */
+    fun DrawScope.drawInteractionLayer(
+        geometry: KlineInteractionDrawGeometry,
+        inputPosition: Offset?,
+        mainTipsAlreadyDrawn: Boolean,
+        drawBuiltInPrimitives: Boolean,
+        drawMainPriceLabel: Boolean,
+    ) {
+        val interactionState = geometry.state
+        val layout = geometry.layout
+        val plotRect = layout.mainPane.plotRect
+        val range = geometry.valueRange
+        val indicatorFrames = geometry.indicatorFrames
+        val activeNativeCrosshair = inputPosition
+            ?.takeIf { renderConfig.crosshair.enabled }
+            ?.let { position ->
+                resolveKlineIndicatorCrosshairContext(
+                    inputPosition = position,
+                    state = interactionState,
+                    plotRect = plotRect,
+                    renderConfig = renderConfig.crosshair,
+                    crosshairRightPx = layout.mainPane.plotRect.right,
+                )
+            }
+
+        fun drawMainTopTips(selection: KlineIndicatorTopTipsSelection) {
+            drawKlineIndicatorTopTipsRenderPlan(
+                plan = builtInTopTipsPlanCache.resolve(
+                    frames = indicatorFrames.main,
+                    chartLayout = layout,
+                    selection = selection,
+                    textMeasurer = textMeasurer,
+                    stackMainTips = true,
+                ),
+                chartLayout = layout,
+                selection = selection,
+                textMeasurer = textMeasurer,
+            )
+        }
+
+        fun drawSubTopTips(
+            paneId: String,
+            selection: KlineIndicatorTopTipsSelection,
+        ) {
+            drawKlineIndicatorTopTipsRenderPlan(
+                plan = builtInTopTipsPlanCache.resolve(
+                    frames = indicatorFrames.subByPane[paneId].orEmpty(),
+                    chartLayout = layout,
+                    selection = selection,
+                    textMeasurer = textMeasurer,
+                    stackMainTips = false,
+                ),
+                chartLayout = layout,
+                selection = selection,
+                textMeasurer = textMeasurer,
+            )
+        }
+
+        if (activeNativeCrosshair == null) {
+            val latest = KlineIndicatorTopTipsSelection.Latest(interactionState.series.latest)
+            if (!mainTipsAlreadyDrawn) drawMainTopTips(latest)
+            layout.subPanes.forEach { pane -> drawSubTopTips(pane.id, latest) }
+            return
+        }
+
+        // Draw Tips before the tooltip card so the card remains the topmost
+        // Cross object in the main pane.
+        if (!mainTipsAlreadyDrawn) {
+            drawMainTopTips(KlineIndicatorTopTipsSelection.Cross(activeNativeCrosshair))
+        }
+        val crossTooltipPresentation = resolveCachedCrossTooltipPresentation(
+            crosshair = activeNativeCrosshair,
+            state = interactionState,
+            plotRect = plotRect,
+            anchorRect = layout.mainPane.outerRect,
+            config = renderConfig.crosshair,
+            style = appliedStyle,
+            densityScale = densityScale,
+            timeLabelFormatter = appliedTimeLabelFormatter,
+            provider = crossTooltipProvider,
+            stableContentWidthPx = crossTooltipStableContentWidthRef.value,
+        )
+        val crossConfig = renderConfig.crosshair
+        val effectiveRight = layout.mainPane.plotRect.right.coerceIn(plotRect.left, plotRect.right)
+        val crossPosition = activeNativeCrosshair.position
+        val rawPosition = activeNativeCrosshair.rawPosition
+
+        if (drawBuiltInPrimitives) {
+        val verticalKey = KlineCrossVerticalLayerKey(
+            top = layout.chartRect.top,
+            bottom = layout.chartRect.bottom,
+            stroke = crossConfig.stroke,
+            color = appliedStyle.crosshair,
+        )
+        val crossStrokePadding = max(
+            1f,
+            logicalPx(crossConfig.stroke.widthPx) / 2f + 1f,
+        )
+        val verticalLength = (layout.chartRect.bottom - layout.chartRect.top).coerceAtLeast(0f)
+        val verticalLayerSize = IntSize(
+            width = kotlin.math.ceil(crossStrokePadding * 2f).toInt().coerceAtLeast(1),
+            height = kotlin.math.ceil(verticalLength + crossStrokePadding * 2f).toInt().coerceAtLeast(1),
+        )
+        if (crossVerticalLayerCache.needsRecord(verticalKey, verticalLayerSize)) {
+            traceKlineSection("Kanvas.cross.vertical.record") {
+                crossVerticalLayer.record(
+                    density = this,
+                    layoutDirection = layoutDirection,
+                    size = verticalLayerSize,
+                ) {
+                    drawCrossVerticalLine(
+                        x = verticalLayerSize.width / 2f,
+                        top = crossStrokePadding,
+                        bottom = crossStrokePadding + verticalLength,
+                        style = appliedStyle,
+                        config = crossConfig,
+                    )
+                }
+            }
+            crossVerticalLayerCache.markRecorded(verticalKey, verticalLayerSize)
+        }
+        crossVerticalLayer.translationX = crossPosition.x - verticalLayerSize.width / 2f
+        crossVerticalLayer.translationY = layout.chartRect.top - crossStrokePadding
+        drawLayer(crossVerticalLayer)
+
+        val horizontalKey = KlineCrossHorizontalLayerKey(
+            left = plotRect.left,
+            right = effectiveRight,
+            stroke = crossConfig.stroke,
+            color = appliedStyle.crosshair,
+        )
+        val horizontalLength = (effectiveRight - plotRect.left).coerceAtLeast(0f)
+        val horizontalLayerSize = IntSize(
+            width = kotlin.math.ceil(horizontalLength + crossStrokePadding * 2f).toInt().coerceAtLeast(1),
+            height = kotlin.math.ceil(crossStrokePadding * 2f).toInt().coerceAtLeast(1),
+        )
+        if (crossHorizontalLayerCache.needsRecord(horizontalKey, horizontalLayerSize)) {
+            traceKlineSection("Kanvas.cross.horizontal.record") {
+                crossHorizontalLayer.record(
+                    density = this,
+                    layoutDirection = layoutDirection,
+                    size = horizontalLayerSize,
+                ) {
+                    drawCrossHorizontalLine(
+                        y = horizontalLayerSize.height / 2f,
+                        left = crossStrokePadding,
+                        right = crossStrokePadding + horizontalLength,
+                        style = appliedStyle,
+                        config = crossConfig,
+                    )
+                }
+            }
+            crossHorizontalLayerCache.markRecorded(horizontalKey, horizontalLayerSize)
+        }
+        crossHorizontalLayer.translationX = plotRect.left - crossStrokePadding
+        crossHorizontalLayer.translationY = rawPosition.y - horizontalLayerSize.height / 2f
+        drawLayer(crossHorizontalLayer)
+
+        if (crossConfig.pointRadiusPx > 0f) {
+            val pointKey = KlineCrossPointLayerKey(crossConfig, appliedStyle)
+            val pointPadding = logicalPx(crossConfig.pointRadiusPx) +
+                logicalPx(crossConfig.pointBorderWidthPx) / 2f + 1f
+            val pointLayerSize = IntSize(
+                width = kotlin.math.ceil(pointPadding * 2f).toInt().coerceAtLeast(1),
+                height = kotlin.math.ceil(pointPadding * 2f).toInt().coerceAtLeast(1),
+            )
+            if (crossPointLayerCache.needsRecord(pointKey, pointLayerSize)) {
+                traceKlineSection("Kanvas.cross.point.record") {
+                    crossPointLayer.record(
+                        density = this,
+                        layoutDirection = layoutDirection,
+                        size = pointLayerSize,
+                    ) {
+                        drawCrossPoint(
+                            position = Offset(pointLayerSize.width / 2f, pointLayerSize.height / 2f),
+                            style = appliedStyle,
+                            config = crossConfig,
+                        )
+                    }
+                }
+                crossPointLayerCache.markRecorded(pointKey, pointLayerSize)
+            }
+            crossPointLayer.translationX = crossPosition.x - pointLayerSize.width / 2f
+            crossPointLayer.translationY = crossPosition.y - pointLayerSize.height / 2f
+            drawLayer(crossPointLayer)
+        }
+        }
+
+        val precision = interactionState.spec?.precision ?: KlineSpec.DefaultPrecision
+        if (drawMainPriceLabel) {
+        val crossValue = range.valueAt(rawPosition.y, plotRect)
+        val priceText = formatPrice(crossValue, precision)
+        val priceKey = KlineCrossPriceLayerKey(
+            text = priceText,
+            plotRect = plotRect,
+            config = crossConfig,
+            style = appliedStyle,
+            textMeasurer = textMeasurer,
+        )
+        val priceLayerSize = crossPriceLayerCache.recordedSizeFor(priceKey) ?: run {
+            val measuredSize = measureKlineTextAreaSize(
+                text = priceText,
+                config = crossConfig.ticksText,
+                textMeasurer = textMeasurer,
+                fallbackTextColor = appliedStyle.crossTextColor,
+            )
+            IntSize(
+                width = kotlin.math.ceil(plotRect.width).toInt().coerceAtLeast(1),
+                height = kotlin.math.ceil(measuredSize.height).toInt()
+                    .coerceIn(1, kotlin.math.ceil(plotRect.height).toInt().coerceAtLeast(1)),
+            )
+        }
+        if (crossPriceLayerCache.needsRecord(priceKey, priceLayerSize)) {
+            traceKlineSection("Kanvas.cross.price.record") {
+                crossPriceLayer.record(
+                    density = this,
+                    layoutDirection = layoutDirection,
+                    size = priceLayerSize,
+                ) {
+                    drawCrossPriceLabel(
+                        text = priceText,
+                        y = priceLayerSize.height / 2f,
+                        plotRect = Rect(
+                            left = 0f,
+                            top = 0f,
+                            right = plotRect.width,
+                            bottom = priceLayerSize.height.toFloat(),
+                        ),
+                        style = appliedStyle,
+                        config = crossConfig,
+                        textMeasurer = textMeasurer,
+                    )
+                }
+            }
+            crossPriceLayerCache.markRecorded(priceKey, priceLayerSize)
+        }
+        val priceLayerTop = (rawPosition.y - priceLayerSize.height / 2f).coerceIn(
+            plotRect.top,
+            (plotRect.bottom - priceLayerSize.height).coerceAtLeast(plotRect.top),
+        )
+        crossPriceLayer.translationX = plotRect.left
+        crossPriceLayer.translationY = priceLayerTop
+        drawLayer(crossPriceLayer)
+        }
+
+        val selection = KlineIndicatorTopTipsSelection.Cross(activeNativeCrosshair)
+        layout.subPanes.forEach { pane ->
+            drawSubPaneCrossValue(
+                pane = pane,
+                frames = indicatorFrames.subByPane[pane.id].orEmpty(),
+                pointer = activeNativeCrosshair.inputPosition,
+                style = appliedStyle,
+                config = crossConfig,
+                precision = precision,
+                textMeasurer = textMeasurer,
+            )
+            drawIndicatorCross(
+                frames = indicatorFrames.subByPane[pane.id].orEmpty(),
+                layout = layout,
+                crosshair = activeNativeCrosshair,
+            )
+            drawSubTopTips(paneId = pane.id, selection = selection)
+        }
+        drawIndicatorCross(
+            frames = indicatorFrames.main,
+            layout = layout,
+            crosshair = activeNativeCrosshair,
+        )
+
+        crossTooltipPresentation?.let { presentation ->
+            val selectionKey = KlineCrossSelectionLayerKey(
+                candleIndex = activeNativeCrosshair.candleIndex,
+                candle = activeNativeCrosshair.candle,
+                previousCandle = activeNativeCrosshair.previousCandle,
+                snappedX = activeNativeCrosshair.position.x,
+                stateSpec = interactionState.spec,
+                layout = layout,
+                config = crossConfig,
+                style = appliedStyle,
+                tooltipPresentation = KlineIdentityRef(presentation),
+                formatter = KlineIdentityRef(appliedTimeLabelFormatter),
+                textMeasurer = textMeasurer,
+            )
+            val card = presentation.layout.cardBounds
+            val tooltipPadding = max(
+                1f,
+                logicalPx(presentation.textArea?.borderWidthPx ?: 0f) / 2f + 1f,
+            )
+            val tooltipLeft = kotlin.math.floor(card.left - tooltipPadding).toInt()
+            val tooltipTop = kotlin.math.floor(card.top - tooltipPadding).toInt()
+            val tooltipRight = kotlin.math.ceil(card.right + tooltipPadding).toInt()
+            val tooltipBottom = kotlin.math.ceil(card.bottom + tooltipPadding).toInt()
+            val tooltipLayerSize = IntSize(
+                width = (tooltipRight - tooltipLeft).coerceAtLeast(1),
+                height = (tooltipBottom - tooltipTop).coerceAtLeast(1),
+            )
+            if (crossSelectionLayerCache.needsRecord(selectionKey, tooltipLayerSize)) {
+                traceKlineSection("Kanvas.cross.tooltip.record") {
+                    crossSelectionLayer.record(
+                        density = this,
+                        layoutDirection = layoutDirection,
+                        size = tooltipLayerSize,
+                    ) {
+                        translate(
+                            left = -tooltipLeft.toFloat(),
+                            top = -tooltipTop.toFloat(),
+                        ) {
+                            drawKlineCrossTooltip(presentation)
+                        }
+                    }
+                }
+                crossSelectionLayerCache.markRecorded(selectionKey, tooltipLayerSize)
+            }
+            crossSelectionLayer.translationX = tooltipLeft.toFloat()
+            crossSelectionLayer.translationY = tooltipTop.toFloat()
+            drawLayer(crossSelectionLayer)
+        }
+
+        val selectedCandle = activeNativeCrosshair.candle
+        layout.timePane?.takeIf {
+            selectedCandle != null && interactionState.spec?.interval?.isValid != false
+        }?.let { timePane ->
+            val timeText = appliedTimeLabelFormatter(
+                checkNotNull(selectedCandle),
+                interactionState.spec?.interval,
+            )
+            val timeKey = KlineCrossTimeLayerKey(
+                text = timeText,
+                timeRect = timePane.plotRect,
+                config = crossConfig,
+                style = appliedStyle,
+                textMeasurer = textMeasurer,
+            )
+            val timeLayerSize = crossTimeLayerCache.recordedSizeFor(timeKey) ?: run {
+                val measuredSize = measureKlineTextAreaSize(
+                    text = timeText,
+                    config = crossConfig.ticksText,
+                    textMeasurer = textMeasurer,
+                    fallbackTextColor = appliedStyle.crossTextColor,
+                )
+                IntSize(
+                    width = kotlin.math.ceil(measuredSize.width).toInt()
+                        .coerceIn(1, kotlin.math.ceil(timePane.plotRect.width).toInt().coerceAtLeast(1)),
+                    height = kotlin.math.ceil(measuredSize.height).toInt()
+                        .coerceIn(1, kotlin.math.ceil(timePane.plotRect.height).toInt().coerceAtLeast(1)),
+                )
+            }
+            if (crossTimeLayerCache.needsRecord(timeKey, timeLayerSize)) {
+                traceKlineSection("Kanvas.cross.time.record") {
+                    crossTimeLayer.record(
+                        density = this,
+                        layoutDirection = layoutDirection,
+                        size = timeLayerSize,
+                    ) {
+                        drawCrossTimeLabelText(
+                            text = timeText,
+                            snappedX = timeLayerSize.width / 2f,
+                            timeRect = Rect(
+                                left = 0f,
+                                top = 0f,
+                                right = timeLayerSize.width.toFloat(),
+                                bottom = timeLayerSize.height.toFloat(),
+                            ),
+                            style = appliedStyle,
+                            textMeasurer = textMeasurer,
+                            config = crossConfig,
+                        )
+                    }
+                }
+                crossTimeLayerCache.markRecorded(timeKey, timeLayerSize)
+            }
+            val timeLayerLeft = (activeNativeCrosshair.position.x - timeLayerSize.width / 2f).coerceIn(
+                timePane.plotRect.left,
+                (timePane.plotRect.right - timeLayerSize.width).coerceAtLeast(timePane.plotRect.left),
+            )
+            val timeLayerTop = (timePane.plotRect.center.y - timeLayerSize.height / 2f).coerceIn(
+                timePane.plotRect.top,
+                (timePane.plotRect.bottom - timeLayerSize.height).coerceAtLeast(timePane.plotRect.top),
+            )
+            crossTimeLayer.translationX = timeLayerLeft
+            crossTimeLayer.translationY = timeLayerTop
+            drawLayer(crossTimeLayer)
+        }
+    }
+
     Layout(
         modifier = chartModifier,
         measurePolicy = chartMeasurePolicy,
@@ -2378,10 +3658,17 @@ fun KanvasChart(
             }
         }
         Canvas(Modifier.fillMaxSize().layoutId("chart-canvas")) {
+            // High-level controller viewport emissions are read in DrawScope,
+            // so gesture frames invalidate Canvas without recomposing the
+            // complete chart function.
+            val state = liveChartState?.value ?: state
+            if (!appliedPaneConfig.drawBelowTipsArea) {
+                interactionDrawGeometryRef.value = null
+            }
             // Capture the host's thread-safe invalidate epoch so asynchronous
             // stateful renderers can request a new Canvas frame without
             // mutating Compose state from DrawScope.
-            if (lifecycleEpoch < 0L) return@Canvas
+            if (lifecycleEpoch < 0L || gestureValueRangeEpoch < 0L) return@Canvas
             val baseLayout = reportedLayout?.takeIf {
                 canvasSize.width.toFloat() == size.width && canvasSize.height.toFloat() == size.height
             } ?: resolveChartLayout(
@@ -2403,50 +3690,80 @@ fun KanvasChart(
                 }
                 return@Canvas
             }
-            val hideMainIndicators = hideMainIndicatorsInLineChartMode && appliedChartType is KlineChartType.Line
-            val exactBaseMainRenderRange = mainRenderRangeCache.resolve(
-                state = state,
-                layout = baseLayout,
-                panePlan = indicatorPanePlan,
-                renderConfig = renderConfig,
-                hideMainIndicators = hideMainIndicators,
-                densityScale = densityScale,
-            ) ?: return@Canvas
+            val hideMainIndicators = hideMainIndicatorsInLineChartMode && isLineLikeMainChart
+            val exactBaseMainRenderRange = traceKlineSection("Kanvas.range.resolve") {
+                mainRenderRangeCache.resolve(
+                    state = state,
+                    layout = baseLayout,
+                    panePlan = indicatorPanePlan,
+                    renderConfig = renderConfig,
+                    hideMainIndicators = hideMainIndicators,
+                    densityScale = densityScale,
+                )
+            } ?: return@Canvas
+            val viewportDrivenRangeUpdate = gestureValueRangeRef.hasViewportChanged(state.viewport)
+            val seriesOnlyRealtimeRangeUpdate =
+                rangeUpdateRef.realtimeMode &&
+                    rangeUpdateRef.series === state.series &&
+                    rangeUpdateRef.viewport == state.viewport
+            val currentRangeSmoothFactor = when {
+                viewportDrivenRangeUpdate -> panRangeSmoothFactor
+                gestureValueRangeRef.isActive -> 1f
+                seriesOnlyRealtimeRangeUpdate ->
+                    min(panRangeSmoothFactor, renderConfig.latestCandleRangeSmoothFactor)
+                else -> panRangeSmoothFactor
+            }
             val baseMainRenderRange = exactBaseMainRenderRange.copy(
-                valueRange = mainRangeSmoother.resolve(
-                    target = exactBaseMainRenderRange.valueRange,
-                    smoothFactor = rangeSmoothFactor,
-                    resetKey = state.spec?.key,
+                valueRange = gestureValueRangeRef.resolve(
+                    target = mainRangeSmoother.resolve(
+                        target = exactBaseMainRenderRange.valueRange,
+                        smoothFactor = currentRangeSmoothFactor,
+                        resetKey = state.spec?.key,
+                    ),
+                    viewport = state.viewport,
+                    freezeRealtimeTick = seriesOnlyRealtimeRangeUpdate,
                 ),
             )
-            val baseIndicatorFrames = indicatorRenderFramesCache.resolve(
-                state = state,
-                layout = baseLayout,
-                panePlan = indicatorPanePlan,
-                paintRange = baseMainRenderRange.paintRange,
-                mainValueRange = baseMainRenderRange.valueRange,
-                style = appliedStyle,
-                densityScale = densityScale,
-                hideMainIndicators = hideMainIndicators,
-                sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
-                subPaneRangeSmoothers = subPaneRangeSmoothers,
-                subPaneRangeResetKey = state.spec?.key,
-                subPaneRangeTransition = historicalRangeTransition,
-            )
-            val baseCrosshair = crosshair
-                ?.takeIf { renderConfig.crosshair.enabled }
-                ?.let { inputPosition ->
-                    resolveKlineIndicatorCrosshairContext(
-                        inputPosition = inputPosition,
-                        state = state,
-                        plotRect = basePlotRect,
-                        renderConfig = renderConfig.crosshair,
-                        crosshairRightPx = baseLayout.mainPane.plotRect.right,
-                    )
-                }
+            val needsMainTipsPreflight = appliedPaneConfig.drawBelowTipsArea && !isChartZooming
+            val baseIndicatorFrames = traceKlineSection("Kanvas.indicator.frames") {
+                indicatorRenderFramesCache.resolve(
+                    state = state,
+                    layout = baseLayout,
+                    panePlan = indicatorPanePlan,
+                    paintRange = baseMainRenderRange.paintRange,
+                    mainValueRange = baseMainRenderRange.valueRange,
+                    style = appliedStyle,
+                    densityScale = densityScale,
+                    hideMainIndicators = hideMainIndicators,
+                    sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
+                    subPaneRangeSmoothers = subPaneRangeSmoothers,
+                    subPaneRangeResetKey = state.spec?.key,
+                    subPaneRangeTransition = historicalRangeTransition,
+                    // The preflight needs contexts for Top Tips measurement, not
+                    // line Paths. Prepare the drawable geometry only after the
+                    // final inset layout is known.
+                    prepareComputedLines = !needsMainTipsPreflight,
+                    includeSubPanes = !needsMainTipsPreflight,
+                )
+            }
+            val baseCrosshair = if (needsMainTipsPreflight) {
+                crosshairState.value
+                    ?.takeIf { renderConfig.crosshair.enabled }
+                    ?.let { inputPosition ->
+                        resolveKlineIndicatorCrosshairContext(
+                            inputPosition = inputPosition,
+                            state = state,
+                            plotRect = basePlotRect,
+                            renderConfig = renderConfig.crosshair,
+                            crosshairRightPx = baseLayout.mainPane.plotRect.right,
+                        )
+                    }
+            } else {
+                null
+            }
             val firstTipsSelection = baseCrosshair?.let(KlineIndicatorTopTipsSelection::Cross)
                 ?: KlineIndicatorTopTipsSelection.Latest(state.series.latest)
-            val firstMainTipsPlan = if (appliedPaneConfig.drawBelowTipsArea && !isChartZooming) {
+            val firstMainTipsPlan = if (needsMainTipsPreflight) {
                 resolveKlineIndicatorTopTipsRenderPlan(
                     frames = baseIndicatorFrames.main,
                     chartLayout = baseLayout,
@@ -2462,61 +3779,41 @@ fun KanvasChart(
                 ?: baseLayout
             val plotRect = layout.mainPane.plotRect
             if (plotRect.width <= 0f || plotRect.height <= 0f) return@Canvas
-            val mainRenderRange = if (layout === baseLayout) {
-                baseMainRenderRange
-            } else {
-                mainRenderRangeCache.resolve(
-                    state = state,
-                    layout = layout,
-                    panePlan = indicatorPanePlan,
-                    renderConfig = renderConfig,
-                    hideMainIndicators = hideMainIndicators,
-                    densityScale = densityScale,
-                )?.let { exact ->
-                    exact.copy(
-                        valueRange = mainRangeSmoother.resolve(
-                            target = exact.valueRange,
-                            smoothFactor = rangeSmoothFactor,
-                            resetKey = state.spec?.key,
-                        ),
-                    )
-                } ?: return@Canvas
-            }
+            // Tips only shifts the vertical top of the main pane. Horizontal
+            // visibility and source values are unchanged, so the base range
+            // (and its one smoother update) is the final range as well.
+            val mainRenderRange = baseMainRenderRange
             val paintRange = mainRenderRange.paintRange
             val range = mainRenderRange.valueRange
-            val indicatorFrames = if (layout === baseLayout) {
+            val indicatorFrames = if (layout === baseLayout && !needsMainTipsPreflight) {
                 baseIndicatorFrames
             } else {
-                indicatorRenderFramesCache.resolve(
-                    state = state,
-                    layout = layout,
-                    panePlan = indicatorPanePlan,
-                    paintRange = paintRange,
-                    mainValueRange = range,
-                    style = appliedStyle,
-                    densityScale = densityScale,
-                    hideMainIndicators = hideMainIndicators,
-                    sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
-                    subPaneRangeSmoothers = subPaneRangeSmoothers,
-                    subPaneRangeResetKey = state.spec?.key,
-                    subPaneRangeTransition = historicalRangeTransition,
-                )
-            }
-            // Resolve this once so ordinary and Cross Top Tips cannot disagree
-            // about blank-area selection or whether Cross is actually enabled.
-            // A retained pointer while Cross rendering is disabled remains an
-            // ordinary/latest Tips frame.
-            val activeNativeCrosshair = crosshair
-                ?.takeIf { renderConfig.crosshair.enabled }
-                ?.let { inputPosition ->
-                    resolveKlineIndicatorCrosshairContext(
-                        inputPosition = inputPosition,
+                traceKlineSection("Kanvas.indicator.frames.final") {
+                    indicatorRenderFramesCache.resolve(
                         state = state,
-                        plotRect = plotRect,
-                        renderConfig = renderConfig.crosshair,
-                        crosshairRightPx = layout.mainPane.plotRect.right,
+                        layout = layout,
+                        panePlan = indicatorPanePlan,
+                        paintRange = paintRange,
+                        mainValueRange = range,
+                        style = appliedStyle,
+                        densityScale = densityScale,
+                        hideMainIndicators = hideMainIndicators,
+                        sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
+                        subPaneRangeSmoothers = subPaneRangeSmoothers,
+                        subPaneRangeResetKey = state.spec?.key,
+                        subPaneRangeTransition = historicalRangeTransition,
+                        prepareComputedLines = true,
                     )
                 }
+            }
+            if (!needsMainTipsPreflight) {
+                interactionDrawGeometryRef.value = KlineInteractionDrawGeometry(
+                    state = state,
+                    layout = layout,
+                    valueRange = range,
+                    indicatorFrames = indicatorFrames,
+                )
+            }
             firstMainTipsPlan?.let { plan ->
                 drawKlineIndicatorTopTipsRenderPlan(
                     plan = plan,
@@ -2526,132 +3823,191 @@ fun KanvasChart(
                 )
             }
 
-            fun drawMainTopTips(selection: KlineIndicatorTopTipsSelection) {
-                drawKlineIndicatorTopTipsRenderPlan(
-                    plan = resolveKlineIndicatorTopTipsRenderPlan(
-                        frames = indicatorFrames.main,
-                        chartLayout = layout,
-                        selection = selection,
-                        textMeasurer = textMeasurer,
-                        stackMainTips = true,
-                    ),
-                    chartLayout = layout,
-                    selection = selection,
+            val precision = state.spec?.precision ?: KlineSpec.DefaultPrecision
+            val canCacheWholeMainBody = indicatorFrames.main.all { frame ->
+                frame.item.renderer.cachePolicy == KlineIndicatorCachePolicy.ImmutableInputs
+            } && (mainChartRenderer == null ||
+                mainChartRenderer.cachePolicy == KlineMainChartCachePolicy.ImmutableInputs)
+            // The built-in candle pipeline never inherits a third-party
+            // renderer's cache failure. Custom indicators are partitioned
+            // into isolated cached and dynamic phases below.
+            val canUseBuiltInMainPipeline = mainChartRenderer == null
+            val panPaintBucket = if (canUseBuiltInMainPipeline) {
+                resolveKlinePanPaintBucket(
+                    currentPaintRange = paintRange,
+                    candleCount = state.series.size,
+                    plotWidthPx = plotRect.width,
+                    candleStepPx = state.viewport.candleStepPx,
+                )
+            } else {
+                KlinePanPaintBucket(paintRange = paintRange, horizontalOverscanPx = 0f)
+            }
+            val mainBodyPaintRange = panPaintBucket.paintRange
+            val mainBodyHorizontalOverscanPx = panPaintBucket.horizontalOverscanPx
+            val mainBodyIndicatorFrames = if (
+                canUseBuiltInMainPipeline && mainBodyPaintRange != paintRange
+            ) {
+                traceKlineSection("Kanvas.indicator.frames.pan-bucket") {
+                    translatableMainFramesCache.resolve(
+                        state = state,
+                        layout = layout,
+                        panePlan = indicatorPanePlan,
+                        paintRange = mainBodyPaintRange,
+                        mainValueRange = range,
+                        style = appliedStyle,
+                        densityScale = densityScale,
+                        hideMainIndicators = hideMainIndicators,
+                        sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
+                        subPaneRangeSmoothers = null,
+                        subPaneRangeResetKey = state.spec?.key,
+                        subPaneRangeTransition = null,
+                        prepareComputedLines = true,
+                        includeSubPanes = false,
+                    )
+                }
+            } else {
+                indicatorFrames
+            }
+            fun KlineIndicatorRenderFrame.isBuiltInFastFrame(): Boolean =
+                item.definition.paintMode == com.zhumeng.kanvas.core.IndicatorPaintMode.COMBINE &&
+                    item.renderer.builtInComputedLineRendererOrNull() != null
+
+            val builtInFastMainFrames = mainBodyIndicatorFrames.main.filter { it.isBuiltInFastFrame() }
+            val isolatedMainFrames = indicatorFrames.main.filterNot { it.isBuiltInFastFrame() }
+            val isolatedBelowFrames = isolatedMainFrames.filter {
+                it.item.definition.zIndex < appliedCandleZIndex
+            }
+            val isolatedAboveFrames = isolatedMainFrames.filter {
+                it.item.definition.zIndex >= appliedCandleZIndex
+            }
+            val fixedLayerSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+            val gridLayerKey = KlineMainGridLayerKey(
+                plotRect = plotRect,
+                style = appliedStyle,
+                grid = renderConfig.grid,
+                textMeasurer = textMeasurer,
+            )
+            val axisLayerKey = KlineMainAxisLayerKey(
+                plotRect = plotRect,
+                valueRange = range,
+                style = appliedStyle,
+                grid = renderConfig.grid,
+                precision = precision,
+                textMeasurer = textMeasurer,
+            )
+            if (mainGridLayerCache.needsRecord(gridLayerKey, fixedLayerSize)) {
+                traceKlineSection("Kanvas.grid.layer.record") {
+                    mainGridLayer.record(
+                        density = this,
+                        layoutDirection = layoutDirection,
+                        size = fixedLayerSize,
+                    ) {
+                        drawGrid(
+                            plotRect = plotRect,
+                            style = appliedStyle,
+                            config = renderConfig.grid,
+                            textMeasurer = textMeasurer,
+                            range = range,
+                            precision = precision,
+                            includeBottomAxisLabel = true,
+                            drawYAxisTicks = false,
+                        )
+                    }
+                }
+                mainGridLayerCache.markRecorded(gridLayerKey, fixedLayerSize)
+            }
+            drawLayer(mainGridLayer)
+
+            fun DrawScope.drawMainIndicatorItems(
+                frames: List<KlineIndicatorRenderFrame>,
+                horizontalClipOverscanPx: Float,
+            ) {
+                drawMainIndicatorFrames(
+                    mainPane = layout.mainPane,
+                    frames = frames,
+                    style = appliedStyle,
+                    grid = renderConfig.grid,
                     textMeasurer = textMeasurer,
+                    precision = precision,
+                    horizontalClipOverscanPx = horizontalClipOverscanPx,
                 )
             }
 
-            fun drawSubTopTips(
-                paneId: String,
-                selection: KlineIndicatorTopTipsSelection,
+            fun DrawScope.drawMainBody(
+                bodyPaintRange: IndexRange,
+                bodyFrames: List<KlineIndicatorRenderFrame>,
+                horizontalClipOverscanPx: Float,
             ) {
-                drawKlineIndicatorTopTipsRenderPlan(
-                    plan = resolveKlineIndicatorTopTipsRenderPlan(
-                        frames = indicatorFrames.subByPane[paneId].orEmpty(),
-                        chartLayout = layout,
-                        selection = selection,
-                        textMeasurer = textMeasurer,
-                        stackMainTips = false,
-                    ),
-                    chartLayout = layout,
-                    selection = selection,
-                    textMeasurer = textMeasurer,
-                )
-            }
-            val drawMainBody: DrawScope.() -> Unit = {
-                drawGrid(
-                    plotRect = plotRect,
-                    style = appliedStyle,
-                    config = renderConfig.grid,
-                    textMeasurer = textMeasurer,
-                    range = range,
-                    precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                    includeBottomAxisLabel = true,
-                    drawYAxisTicks = false,
-                )
                 // Treat the candle body plus high/low marks or the line latest
                 // point as one rendering phase. Keep them as one z-index unit
                 // relative to Main indicators.
                 fun DrawScope.drawCandleChartPhase() {
-                    clipRect(plotRect.left, plotRect.top, plotRect.right, plotRect.bottom) {
-                        when (appliedChartType) {
-                            is KlineChartType.Bar -> drawBars(
-                                state.series.candles,
-                                paintRange,
-                                plotRect,
-                                range,
-                                state.viewport,
-                                appliedChartType.style,
-                                appliedStyle,
-                                renderConfig.candle,
-                            )
-                            is KlineChartType.Line -> drawLineChart(
-                                state.series.candles,
-                                paintRange,
-                                plotRect,
-                                range,
-                                state.viewport,
-                                appliedChartType.style,
-                                appliedStyle,
-                                renderConfig.candle,
-                                appliedCandleGradients,
-                            )
+                    traceKlineSection("Kanvas.candle.draw") {
+                        val mainChartContext = KlineMainChartDrawContext(
+                            state = state,
+                            paintRange = bodyPaintRange,
+                            plotRect = plotRect,
+                            valueRange = range,
+                            style = appliedStyle,
+                            densityScale = densityScale,
+                        )
+                        clipRect(
+                            plotRect.left - horizontalClipOverscanPx,
+                            plotRect.top,
+                            plotRect.right + horizontalClipOverscanPx,
+                            plotRect.bottom,
+                        ) {
+                            if (mainChartRenderer != null) {
+                                mainChartRenderer.drawChart(this, mainChartContext)
+                            } else {
+                                when (appliedChartType) {
+                                    is KlineChartType.Bar -> drawBars(
+                                        state.series.candles,
+                                        bodyPaintRange,
+                                        plotRect,
+                                        range,
+                                        state.viewport,
+                                        appliedChartType.style,
+                                        appliedStyle,
+                                        renderConfig.candle,
+                                    )
+                                    is KlineChartType.Line -> drawLineChart(
+                                        state.series.candles,
+                                        bodyPaintRange,
+                                        plotRect,
+                                        range,
+                                        state.viewport,
+                                        appliedChartType.style,
+                                        appliedStyle,
+                                        renderConfig.candle,
+                                        appliedCandleGradients,
+                                    )
+                                }
+                            }
                         }
                     }
-                    if (appliedChartType is KlineChartType.Bar) {
-                        drawHighLowMarks(
-                            candles = state.series.candles,
-                            range = paintRange,
-                            plotRect = plotRect,
-                            values = range,
-                            viewport = state.viewport,
-                            precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                            style = appliedStyle,
-                            config = appliedCandleOverlayConfig,
-                            textMeasurer = textMeasurer,
-                        )
-                    } else if (appliedChartType is KlineChartType.Line) {
-                        drawLatestLinePoint(
-                            latest = state.series.latest,
-                            plotRect = plotRect,
-                            values = range,
-                            viewport = state.viewport,
-                            style = appliedStyle,
-                            config = appliedCandleOverlayConfig,
-                        )
-                    }
-                    drawYAxisTicks(
-                        plotRect = plotRect,
-                        style = appliedStyle,
-                        config = renderConfig.grid,
-                        textMeasurer = textMeasurer,
-                        range = range,
-                        precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                        includeBottomAxisLabel = true,
-                        textArea = renderConfig.grid.ticksText,
-                    )
                 }
 
-                fun DrawScope.drawMainItems(frames: List<KlineIndicatorRenderFrame>) {
-                    drawMainIndicatorFrames(
-                        mainPane = layout.mainPane,
-                        frames = frames,
-                        style = appliedStyle,
-                        grid = renderConfig.grid,
-                        textMeasurer = textMeasurer,
-                        precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                    )
-                }
                 if (hideMainIndicators) {
                     drawCandleChartPhase()
                 } else {
-                    val split = indicatorFrames.main.indexOfFirst { frame ->
+                    val split = bodyFrames.indexOfFirst { frame ->
                         frame.item.definition.zIndex >= appliedCandleZIndex
-                    }.let { index -> if (index < 0) indicatorFrames.main.size else index }
-                    drawMainItems(indicatorFrames.main.subList(0, split))
+                    }.let { index -> if (index < 0) bodyFrames.size else index }
+                    drawMainIndicatorItems(bodyFrames.subList(0, split), horizontalClipOverscanPx)
                     drawCandleChartPhase()
-                    drawMainItems(indicatorFrames.main.subList(split, indicatorFrames.main.size))
+                    drawMainIndicatorItems(
+                        bodyFrames.subList(split, bodyFrames.size),
+                        horizontalClipOverscanPx,
+                    )
                 }
+            }
+            val drawFullMainBody: DrawScope.() -> Unit = {
+                drawMainBody(
+                    bodyPaintRange = mainBodyPaintRange,
+                    bodyFrames = mainBodyIndicatorFrames.main,
+                    horizontalClipOverscanPx = mainBodyHorizontalOverscanPx,
+                )
             }
             val mainBodyKey = KlineMainBodyLayerKey(
                 state = state,
@@ -2659,6 +4015,7 @@ fun KanvasChart(
                 renderRange = mainRenderRange,
                 frames = indicatorFrames.main,
                 chartType = appliedChartType,
+                mainChartRenderer = mainChartRenderer,
                 candleZIndex = appliedCandleZIndex,
                 style = appliedStyle,
                 renderConfig = renderConfig,
@@ -2668,61 +4025,460 @@ fun KanvasChart(
                 hideMainIndicators = hideMainIndicators,
                 textMeasurer = textMeasurer,
             )
-            val mainBodySize = IntSize(size.width.roundToInt(), size.height.roundToInt())
-            val canCacheMainBody = indicatorFrames.main.all { frame ->
-                frame.item.renderer === KlineComputedLineIndicatorRenderer ||
-                    frame.item.renderer === KlineVolumeIndicatorRenderer ||
-                    frame.item.renderer === KlineSarIndicatorRenderer
-            }
-            if (canCacheMainBody) {
-                if (mainBodyLayerCache.needsRecord(mainBodyKey, mainBodySize)) {
-                    mainBodyLayer.record(
-                        density = this,
-                        layoutDirection = layoutDirection,
-                        size = mainBodySize,
-                        block = drawMainBody,
-                    )
-                    mainBodyLayerCache.markRecorded(mainBodyKey, mainBodySize)
+            val layerOverscanInt = kotlin.math.ceil(mainBodyHorizontalOverscanPx.toDouble())
+                .toInt()
+                .coerceAtLeast(0)
+            val mainLayerLeft = kotlin.math.floor(plotRect.left.toDouble()).toInt()
+            val mainLayerTop = kotlin.math.floor(plotRect.top.toDouble()).toInt()
+            val mainLayerRight = kotlin.math.ceil(plotRect.right.toDouble()).toInt()
+            val mainLayerBottom = kotlin.math.ceil(plotRect.bottom.toDouble()).toInt()
+            val mainBodySize = IntSize(
+                width = (mainLayerRight - mainLayerLeft + layerOverscanInt * 2).coerceAtLeast(1),
+                height = (mainLayerBottom - mainLayerTop).coerceAtLeast(1),
+            )
+            val fullTranslatableLayerSize = IntSize(
+                width = fixedLayerSize.width + layerOverscanInt * 2,
+                height = fixedLayerSize.height,
+            )
+
+            fun DrawScope.drawIsolatedIndicatorPhase(
+                frames: List<KlineIndicatorRenderFrame>,
+                layer: GraphicsLayer,
+                cache: KlineRecordedLayerCache,
+                traceName: String,
+            ) {
+                if (frames.isEmpty()) return
+                val cacheable = frames.filter {
+                    it.item.renderer.cachePolicy == KlineIndicatorCachePolicy.ImmutableInputs
                 }
+                val dynamic = frames.filter {
+                    it.item.renderer.cachePolicy == KlineIndicatorCachePolicy.Never
+                }
+                if (cacheable.isNotEmpty()) {
+                    val key = KlineCachedIndicatorLayerKey(
+                        state = state,
+                        layout = layout,
+                        renderRange = mainRenderRange,
+                        frames = cacheable,
+                        style = appliedStyle,
+                        grid = renderConfig.grid,
+                        precision = precision,
+                        textMeasurer = textMeasurer,
+                    )
+                    if (cache.needsRecord(key, fixedLayerSize)) {
+                        traceKlineSection(traceName) {
+                            layer.record(
+                                density = this,
+                                layoutDirection = layoutDirection,
+                                size = fixedLayerSize,
+                            ) {
+                                drawMainIndicatorItems(cacheable, horizontalClipOverscanPx = 0f)
+                            }
+                        }
+                        cache.markRecorded(key, fixedLayerSize)
+                    }
+                    drawLayer(layer)
+                }
+                if (dynamic.isNotEmpty()) {
+                    // A Never renderer keeps its mutable draw semantics, but
+                    // cannot invalidate the candle or immutable indicator nodes.
+                    traceKlineSection("Kanvas.indicator.dynamic.draw") {
+                        drawMainIndicatorItems(dynamic, horizontalClipOverscanPx = 0f)
+                    }
+                }
+            }
+
+            if (canUseBuiltInMainPipeline) {
+                drawIsolatedIndicatorPhase(
+                    frames = isolatedBelowFrames,
+                    layer = cacheableIndicatorBelowLayer,
+                    cache = cacheableIndicatorBelowLayerCache,
+                    traceName = "Kanvas.indicator.cache.below.record",
+                )
+            }
+            if (canUseBuiltInMainPipeline) {
+                val layerRanges = resolveKlineRealtimeLayerRanges(
+                    paintRange = mainBodyPaintRange,
+                    candleCount = state.series.size,
+                    lineLike = appliedChartType is KlineChartType.Line ||
+                        builtInFastMainFrames.isNotEmpty(),
+                )
+                val historicalFrames = builtInFastMainFrames.map { frame ->
+                    frame.copy(
+                        context = frame.context.copy(paintRange = layerRanges.historical),
+                        preparedLines = null,
+                        preparedLineTranslationX = 0f,
+                    )
+                }
+                val historicalKey = KlineHistoricalMainBodyLayerKey(
+                    series = state.series,
+                    frames = historicalFrames,
+                    layout = layout,
+                    renderRange = KlineMainRenderRange(layerRanges.historical, range),
+                    candleWidthPx = state.viewport.candleWidthPx,
+                    candleSpacingPx = state.viewport.candleSpacingPx,
+                    chartType = appliedChartType,
+                    candleZIndex = appliedCandleZIndex,
+                    style = appliedStyle,
+                    renderConfig = renderConfig,
+                    candleOverlayConfig = appliedCandleOverlayConfig,
+                    candleGradients = appliedCandleGradients,
+                    densityScale = densityScale,
+                    hideMainIndicators = hideMainIndicators,
+                    precision = precision,
+                    textMeasurer = textMeasurer,
+                )
+                var historicalTranslationX = historicalMainBodyLayerCache.translationFor(
+                    key = historicalKey,
+                    size = mainBodySize,
+                    currentRightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                    maximumTranslationPx = mainBodyHorizontalOverscanPx,
+                )
+                if (historicalTranslationX == null) {
+                    traceKlineSection("Kanvas.main.history.layer.record") {
+                        historicalMainBodyLayer.record(
+                            density = this,
+                            layoutDirection = layoutDirection,
+                            size = mainBodySize,
+                        ) {
+                            translate(
+                                left = layerOverscanInt - mainLayerLeft.toFloat(),
+                                top = -mainLayerTop.toFloat(),
+                            ) {
+                                drawMainBody(
+                                    bodyPaintRange = layerRanges.historical,
+                                    bodyFrames = historicalFrames,
+                                    horizontalClipOverscanPx = mainBodyHorizontalOverscanPx,
+                                )
+                            }
+                        }
+                    }
+                    historicalMainBodyLayerCache.markRecorded(
+                        key = historicalKey,
+                        size = mainBodySize,
+                        rightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                    )
+                    historicalTranslationX = 0f
+                }
+                historicalMainBodyLayer.translationX =
+                    historicalTranslationX + mainLayerLeft - layerOverscanInt
+                historicalMainBodyLayer.translationY = mainLayerTop.toFloat()
+                drawLayer(historicalMainBodyLayer)
+
+                if (!layerRanges.patch.isEmpty) {
+                    val patchFrames = builtInFastMainFrames.map { frame ->
+                        frame.copy(
+                            context = frame.context.copy(paintRange = layerRanges.patch),
+                            preparedLines = null,
+                            preparedLineTranslationX = 0f,
+                        )
+                    }
+                    val patchPaddingPx = max(
+                        state.viewport.candleStepPx,
+                        4f * densityScale,
+                    )
+                    val newestX = state.viewport.xForIndex(plotRect.right, 0.0) -
+                        state.viewport.candleHalfStepPx
+                    val oldestPatchIndex = layerRanges.patch.endExclusive - 1
+                    val oldestPatchX = state.viewport.xForIndex(
+                        plotRect.right,
+                        oldestPatchIndex.toDouble(),
+                    ) - state.viewport.candleHalfStepPx
+                    val patchLeft = kotlin.math.floor(
+                        min(newestX, oldestPatchX) - patchPaddingPx,
+                    ).toInt()
+                    val patchRight = kotlin.math.ceil(
+                        max(newestX, oldestPatchX) + patchPaddingPx,
+                    ).toInt()
+                    val patchSize = IntSize(
+                        width = (patchRight - patchLeft).coerceAtLeast(1),
+                        height = (mainLayerBottom - mainLayerTop).coerceAtLeast(1),
+                    )
+                    val patchKey = KlineTranslatableMainBodyLayerKey(
+                        series = state.series,
+                        indicatorInputs = builtInFastMainFrames.map { frame ->
+                            KlineIndicatorPatchInputKey(
+                                definition = frame.item.definition,
+                                renderer = KlineIdentityRef(frame.item.renderer),
+                                output = KlineIdentityRef(frame.item.output),
+                                colorIndex = frame.item.colorIndex,
+                            )
+                        },
+                        layout = layout,
+                        renderRange = KlineMainRenderRange(layerRanges.patch, range),
+                        candleWidthPx = state.viewport.candleWidthPx,
+                        candleSpacingPx = state.viewport.candleSpacingPx,
+                        chartType = appliedChartType,
+                        candleZIndex = appliedCandleZIndex,
+                        style = appliedStyle,
+                        renderConfig = renderConfig,
+                        candleOverlayConfig = appliedCandleOverlayConfig,
+                        candleGradients = appliedCandleGradients,
+                        densityScale = densityScale,
+                        hideMainIndicators = hideMainIndicators,
+                        precision = precision,
+                        textMeasurer = textMeasurer,
+                    )
+                    var patchTranslationX = realtimeMainPatchLayerCache.translationFor(
+                        key = patchKey,
+                        size = patchSize,
+                        currentRightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                        maximumTranslationPx = Float.POSITIVE_INFINITY,
+                    )
+                    if (patchTranslationX == null) {
+                        traceKlineSection("Kanvas.main.realtime.patch.record") {
+                            realtimeMainPatchLayer.record(
+                                density = this,
+                                layoutDirection = layoutDirection,
+                                size = patchSize,
+                            ) {
+                                translate(
+                                    left = -patchLeft.toFloat(),
+                                    top = -mainLayerTop.toFloat(),
+                                ) {
+                                    drawMainBody(
+                                        bodyPaintRange = layerRanges.patch,
+                                        bodyFrames = patchFrames,
+                                        horizontalClipOverscanPx = patchPaddingPx,
+                                    )
+                                }
+                            }
+                        }
+                        realtimeMainPatchLayerCache.markRecorded(
+                            key = patchKey,
+                            size = patchSize,
+                            rightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                        )
+                        patchTranslationX = 0f
+                    }
+                    // The patch's local display list is independent of its X
+                    // anchor. During pan, RenderThread moves this narrow node;
+                    // only a market-data change re-records its contents.
+                    realtimeMainPatchLayer.translationX = patchLeft.toFloat()
+                    realtimeMainPatchLayer.translationY = mainLayerTop.toFloat()
+                    drawLayer(realtimeMainPatchLayer)
+                }
+            } else if (canCacheWholeMainBody) {
+                var layerTranslationX = mainBodyLayerCache.translationFor(
+                    key = mainBodyKey,
+                    size = mainBodySize,
+                    currentRightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                    maximumTranslationPx = mainBodyHorizontalOverscanPx,
+                )
+                if (layerTranslationX == null) {
+                    traceKlineSection("Kanvas.main.layer.record") {
+                        mainBodyLayer.record(
+                            density = this,
+                            layoutDirection = layoutDirection,
+                            size = mainBodySize,
+                        ) {
+                            translate(
+                                left = layerOverscanInt - mainLayerLeft.toFloat(),
+                                top = -mainLayerTop.toFloat(),
+                            ) {
+                                drawFullMainBody()
+                            }
+                        }
+                    }
+                    mainBodyLayerCache.markRecorded(
+                        key = mainBodyKey,
+                        size = mainBodySize,
+                        rightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                    )
+                    layerTranslationX = 0f
+                }
+                mainBodyLayer.translationX = layerTranslationX + mainLayerLeft - layerOverscanInt
+                mainBodyLayer.translationY = mainLayerTop.toFloat()
                 drawLayer(mainBodyLayer)
             } else {
-                // Custom renderers may rely on Compose draw-state observation.
-                // Keep their original per-frame execution semantics unless
-                // they opt into an explicit cache contract in the future.
-                drawMainBody()
+                // Custom renderers may rely on mutable draw-state observation.
+                // Keep their per-frame execution semantics unless they opt in.
+                traceKlineSection("Kanvas.main.body.draw") { drawFullMainBody() }
+            }
+            if (canUseBuiltInMainPipeline) {
+                drawIsolatedIndicatorPhase(
+                    frames = isolatedAboveFrames,
+                    layer = cacheableIndicatorAboveLayer,
+                    cache = cacheableIndicatorAboveLayerCache,
+                    traceName = "Kanvas.indicator.cache.above.record",
+                )
             }
 
-            fun drawMainOverlayPhase() {
-
-                fun drawContent() {
-                    drawOrderMarkers(
-                        markerIndex = orderMarkerIndex,
+            val drawCandleOverlay: DrawScope.() -> Unit = {
+                val exactMainChartContext = KlineMainChartDrawContext(
+                    state = state,
+                    paintRange = paintRange,
+                    plotRect = plotRect,
+                    valueRange = range,
+                    style = appliedStyle,
+                    densityScale = densityScale,
+                )
+                if (mainChartRenderer != null) {
+                    mainChartRenderer.drawOverlay(this, exactMainChartContext)
+                } else if (appliedChartType is KlineChartType.Bar) {
+                    drawHighLowMarks(
                         candles = state.series.candles,
-                        paintRange = paintRange,
+                        range = paintRange,
                         plotRect = plotRect,
                         values = range,
                         viewport = state.viewport,
-                        config = orderMarkerConfig,
-                        textMeasurer = textMeasurer,
-                        densityScale = densityScale,
-                    )
-                    drawLatestPrice(
-                        latest = state.series.latest,
-                        interval = state.spec?.interval,
-                        nowMillis = countdownNowMillis,
-                        plotRect = plotRect,
-                        values = range,
-                        viewport = state.viewport,
-                        precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
+                        precision = precision,
                         style = appliedStyle,
                         config = appliedCandleOverlayConfig,
                         textMeasurer = textMeasurer,
                     )
-                    drawIndicatorOverlays(
-                        frames = indicatorFrames.main,
-                        layout = layout,
-                        policy = renderConfig.indicatorOverlay,
+                } else if (appliedChartType is KlineChartType.Line) {
+                    drawLatestLinePoint(
+                        latest = state.series.latest,
+                        plotRect = plotRect,
+                        values = range,
+                        viewport = state.viewport,
+                        style = appliedStyle,
+                        config = appliedCandleOverlayConfig,
                     )
+                }
+            }
+            val canCacheCandleOverlay = mainChartRenderer == null ||
+                mainChartRenderer.cachePolicy == KlineMainChartCachePolicy.ImmutableInputs
+            if (canCacheCandleOverlay) {
+                val candleOverlayContent = when {
+                    mainChartRenderer != null -> state
+                    appliedChartType is KlineChartType.Bar ->
+                        resolveKlinePriceExtremeSelection(state.series.candles, paintRange)
+                    else -> state.series.latest
+                }
+                val candleOverlayLayerKey = KlineCandleOverlayLayerKey(
+                    content = candleOverlayContent,
+                    layout = layout,
+                    renderRange = mainRenderRange,
+                    chartType = appliedChartType,
+                    mainChartRenderer = KlineIdentityRef(mainChartRenderer),
+                    style = appliedStyle,
+                    config = appliedCandleOverlayConfig,
+                    densityScale = densityScale,
+                    precision = precision,
+                    textMeasurer = textMeasurer,
+                )
+                if (candleOverlayLayerCache.needsRecord(candleOverlayLayerKey, fixedLayerSize)) {
+                    traceKlineSection("Kanvas.candle.overlay.layer.record") {
+                        candleOverlayLayer.record(
+                            density = this,
+                            layoutDirection = layoutDirection,
+                            size = fixedLayerSize,
+                        ) { drawCandleOverlay() }
+                    }
+                    candleOverlayLayerCache.markRecorded(candleOverlayLayerKey, fixedLayerSize)
+                }
+                drawLayer(candleOverlayLayer)
+            } else {
+                traceKlineSection("Kanvas.candle.overlay.draw") { drawCandleOverlay() }
+            }
+
+            if (mainAxisLayerCache.needsRecord(axisLayerKey, fixedLayerSize)) {
+                traceKlineSection("Kanvas.axis.layer.record") {
+                    mainAxisLayer.record(
+                        density = this,
+                        layoutDirection = layoutDirection,
+                        size = fixedLayerSize,
+                    ) {
+                        drawYAxisTicks(
+                            plotRect = plotRect,
+                            style = appliedStyle,
+                            config = renderConfig.grid,
+                            textMeasurer = textMeasurer,
+                            range = range,
+                            precision = precision,
+                            includeBottomAxisLabel = true,
+                            textArea = renderConfig.grid.ticksText,
+                        )
+                    }
+                }
+                mainAxisLayerCache.markRecorded(axisLayerKey, fixedLayerSize)
+            }
+            drawLayer(mainAxisLayer)
+
+            fun drawMainOverlayPhase() {
+                fun drawContent() {
+                    if (orderMarkers.isNotEmpty()) {
+                        val placements = resolveKlineOrderMarkerPlacements(
+                            markerIndex = orderMarkerIndex,
+                            candles = state.series.candles,
+                            paintRange = paintRange,
+                            plotRect = plotRect,
+                            valueRange = range,
+                            viewport = state.viewport,
+                            config = orderMarkerConfig,
+                            densityScale = densityScale,
+                        )
+                        val orderKey = KlineOrderMarkerLayerKey(
+                            placements = placements,
+                            orderMarkerConfig = orderMarkerConfig,
+                            style = appliedStyle,
+                            densityScale = densityScale,
+                        )
+                        if (builtInMainOverlayLayerCache.needsRecord(orderKey, fixedLayerSize)) {
+                            traceKlineSection("Kanvas.orderMarkers.layer.record") {
+                                builtInMainOverlayLayer.record(
+                                    density = this,
+                                    layoutDirection = layoutDirection,
+                                    size = fixedLayerSize,
+                                ) {
+                                    drawOrderMarkerPlacements(
+                                        placements = placements,
+                                        config = orderMarkerConfig,
+                                        densityScale = densityScale,
+                                    )
+                                }
+                            }
+                            builtInMainOverlayLayerCache.markRecorded(orderKey, fixedLayerSize)
+                        }
+                        drawLayer(builtInMainOverlayLayer)
+                    }
+                    val latest = state.series.latest
+                    val interval = state.spec?.interval
+                    val latestPriceKey = KlineLatestPriceLayerKey(
+                        latest = latest,
+                        interval = interval,
+                        countdownText = resolveKlineCountdownText(latest, interval, countdownNowMillis),
+                        plotRect = plotRect,
+                        valueRange = range,
+                        viewport = state.viewport,
+                        precision = precision,
+                        style = appliedStyle,
+                        config = appliedCandleOverlayConfig,
+                        textMeasurer = textMeasurer,
+                    )
+                    if (latestPriceLayerCache.needsRecord(latestPriceKey, fixedLayerSize)) {
+                        traceKlineSection("Kanvas.latestPrice.layer.record") {
+                            latestPriceLayer.record(
+                                density = this,
+                                layoutDirection = layoutDirection,
+                                size = fixedLayerSize,
+                            ) {
+                                drawLatestPrice(
+                                    latest = latest,
+                                    interval = interval,
+                                    nowMillis = countdownNowMillis,
+                                    plotRect = plotRect,
+                                    values = range,
+                                    viewport = state.viewport,
+                                    precision = precision,
+                                    style = appliedStyle,
+                                    config = appliedCandleOverlayConfig,
+                                    textMeasurer = textMeasurer,
+                                )
+                            }
+                        }
+                        latestPriceLayerCache.markRecorded(latestPriceKey, fixedLayerSize)
+                    }
+                    drawLayer(latestPriceLayer)
+                    traceKlineSection("Kanvas.indicator.overlay.dynamic.draw") {
+                        drawIndicatorOverlays(
+                            frames = indicatorFrames.main,
+                            layout = layout,
+                            policy = renderConfig.indicatorOverlay,
+                        )
+                    }
                 }
                 if (renderConfig.indicatorOverlay.allowOutsideMainRect) {
                     drawContent()
@@ -2740,6 +4496,145 @@ fun KanvasChart(
             if (!renderConfig.indicatorOverlay.allowOutsideMainRect) {
                 drawMainOverlayPhase()
             }
+            val builtInSubFramesByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
+            val cacheableCustomSubFramesByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
+            val dynamicSubFramesByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
+            indicatorFrames.subByPane.forEach { (paneId, frames) ->
+                frames.filter {
+                    it.item.renderer.builtInComputedLineRendererOrNull() != null ||
+                        it.item.renderer.builtInVolumeRendererOrNull() != null
+                }.takeIf(List<KlineIndicatorRenderFrame>::isNotEmpty)?.let { cacheable ->
+                    builtInSubFramesByPane[paneId] = cacheable
+                }
+                frames.filter {
+                    it.item.renderer.cachePolicy == KlineIndicatorCachePolicy.ImmutableInputs &&
+                        it.item.renderer.builtInComputedLineRendererOrNull() == null &&
+                        it.item.renderer.builtInVolumeRendererOrNull() == null
+                }.takeIf(List<KlineIndicatorRenderFrame>::isNotEmpty)?.let { cacheable ->
+                    cacheableCustomSubFramesByPane[paneId] = cacheable
+                }
+                frames.filter {
+                    it.item.renderer.cachePolicy == KlineIndicatorCachePolicy.Never
+                }.takeIf(List<KlineIndicatorRenderFrame>::isNotEmpty)?.let { dynamic ->
+                    dynamicSubFramesByPane[paneId] = dynamic
+                }
+            }
+            if (builtInSubFramesByPane.isNotEmpty()) {
+                val historicalSubFrames = builtInSubFramesByPane.mapValues { (_, frames) ->
+                    frames.map { frame ->
+                        val paintRange = frame.context.paintRange
+                        val historicalStart = min(
+                            paintRange.endExclusive,
+                            max(1, paintRange.startInclusive),
+                        )
+                        frame.copy(
+                            context = frame.context.copy(
+                                paintRange = if (historicalStart < paintRange.endExclusive) {
+                                    IndexRange(historicalStart, paintRange.endExclusive)
+                                } else {
+                                    IndexRange.Empty
+                                },
+                            ),
+                            preparedLines = null,
+                            preparedLineTranslationX = 0f,
+                        )
+                    }
+                }
+                val cachedSubKey = KlineHistoricalSubIndicatorLayerKey(
+                    series = state.series,
+                    layout = layout,
+                    frames = historicalSubFrames,
+                    style = appliedStyle,
+                )
+                if (cachedSubIndicatorLayerCache.needsRecord(cachedSubKey, fixedLayerSize)) {
+                    traceKlineSection("Kanvas.sub.history.layer.record") {
+                        cachedSubIndicatorLayer.record(
+                            density = this,
+                            layoutDirection = layoutDirection,
+                            size = fixedLayerSize,
+                        ) {
+                            layout.subPanes.forEach { pane ->
+                                drawSubIndicatorFrames(
+                                    pane = pane,
+                                    frames = historicalSubFrames[pane.id].orEmpty(),
+                                    style = appliedStyle,
+                                )
+                            }
+                        }
+                    }
+                    cachedSubIndicatorLayerCache.markRecorded(cachedSubKey, fixedLayerSize)
+                }
+                drawLayer(cachedSubIndicatorLayer)
+
+                val patchSubFrames = builtInSubFramesByPane.mapValues { (_, frames) ->
+                    frames.map { frame ->
+                        val endExclusive = if (
+                            frame.item.renderer.builtInComputedLineRendererOrNull() != null
+                        ) {
+                            min(2, frame.context.state.series.size)
+                        } else {
+                            min(1, frame.context.state.series.size)
+                        }
+                        frame.copy(
+                            context = frame.context.copy(paintRange = IndexRange(0, endExclusive)),
+                            preparedLines = null,
+                            preparedLineTranslationX = 0f,
+                        )
+                    }
+                }
+                val patchSubKey = KlineCachedSubIndicatorLayerKey(
+                    state = state,
+                    layout = layout,
+                    frames = patchSubFrames,
+                    style = appliedStyle,
+                )
+                if (realtimeSubIndicatorPatchLayerCache.needsRecord(patchSubKey, fixedLayerSize)) {
+                    traceKlineSection("Kanvas.sub.realtime.patch.record") {
+                        realtimeSubIndicatorPatchLayer.record(
+                            density = this,
+                            layoutDirection = layoutDirection,
+                            size = fixedLayerSize,
+                        ) {
+                            layout.subPanes.forEach { pane ->
+                                drawSubIndicatorFrames(
+                                    pane = pane,
+                                    frames = patchSubFrames[pane.id].orEmpty(),
+                                    style = appliedStyle,
+                                )
+                            }
+                        }
+                    }
+                    realtimeSubIndicatorPatchLayerCache.markRecorded(patchSubKey, fixedLayerSize)
+                }
+                drawLayer(realtimeSubIndicatorPatchLayer)
+            }
+            if (cacheableCustomSubFramesByPane.isNotEmpty()) {
+                val customSubKey = KlineCachedSubIndicatorLayerKey(
+                    state = state,
+                    layout = layout,
+                    frames = cacheableCustomSubFramesByPane,
+                    style = appliedStyle,
+                )
+                if (cacheableCustomSubIndicatorLayerCache.needsRecord(customSubKey, fixedLayerSize)) {
+                    traceKlineSection("Kanvas.sub.custom.cache.layer.record") {
+                        cacheableCustomSubIndicatorLayer.record(
+                            density = this,
+                            layoutDirection = layoutDirection,
+                            size = fixedLayerSize,
+                        ) {
+                            layout.subPanes.forEach { pane ->
+                                drawSubIndicatorFrames(
+                                    pane = pane,
+                                    frames = cacheableCustomSubFramesByPane[pane.id].orEmpty(),
+                                    style = appliedStyle,
+                                )
+                            }
+                        }
+                    }
+                    cacheableCustomSubIndicatorLayerCache.markRecorded(customSubKey, fixedLayerSize)
+                }
+                drawLayer(cacheableCustomSubIndicatorLayer)
+            }
             // Kanvas paints ordinary sub objects in their physical pane order;
             // Time therefore precedes sub charts in `middle` mode and follows
             // them in `bottom` mode. This matters when unclipped time labels
@@ -2756,39 +4651,84 @@ fun KanvasChart(
                 }.thenBy { pane -> layout.paneOrder.indexOf(pane) },
             ).forEach { pane ->
                 if (pane.id == layout.timePane?.id) {
-                    drawTimeAxis(
-                        candles = state.series.candles,
-                        range = paintRange,
-                        chartRect = plotRect,
-                        timeRect = pane.plotRect,
-                        timeOuterRect = pane.outerRect,
-                        viewport = state.viewport,
+                    val timeAxisLayerKey = KlineTranslatableTimeAxisLayerKey(
+                        series = state.series,
+                        layout = layout,
+                        paintRange = mainBodyPaintRange,
+                        candleWidthPx = state.viewport.candleWidthPx,
+                        candleSpacingPx = state.viewport.candleSpacingPx,
                         style = appliedStyle,
-                        textMeasurer = textMeasurer,
                         interval = state.spec?.interval,
                         config = appliedTimeAxisConfig,
-                        formatter = appliedTimeLabelFormatter,
+                        formatter = KlineIdentityRef(appliedTimeLabelFormatter),
+                        textMeasurer = textMeasurer,
                     )
+                    var timeTranslationX = timeAxisLayerCache.translationFor(
+                        key = timeAxisLayerKey,
+                        size = fullTranslatableLayerSize,
+                        currentRightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                        maximumTranslationPx = mainBodyHorizontalOverscanPx,
+                    )
+                    if (timeTranslationX == null) {
+                        traceKlineSection("Kanvas.time.axis.layer.record") {
+                            timeAxisLayer.record(
+                                density = this,
+                                layoutDirection = layoutDirection,
+                                size = fullTranslatableLayerSize,
+                            ) {
+                                translate(left = layerOverscanInt.toFloat()) {
+                                    drawTimeAxis(
+                                        candles = state.series.candles,
+                                        range = mainBodyPaintRange,
+                                        chartRect = plotRect,
+                                        timeRect = pane.plotRect,
+                                        timeOuterRect = pane.outerRect,
+                                        viewport = state.viewport,
+                                        style = appliedStyle,
+                                        textMeasurer = textMeasurer,
+                                        interval = state.spec?.interval,
+                                        config = appliedTimeAxisConfig.copy(clipToDrawableRect = false),
+                                        formatter = appliedTimeLabelFormatter,
+                                    )
+                                }
+                            }
+                        }
+                        timeAxisLayerCache.markRecorded(
+                            key = timeAxisLayerKey,
+                            size = fullTranslatableLayerSize,
+                            rightEdgeOffsetPx = state.viewport.rightEdgeOffsetPx,
+                        )
+                        timeTranslationX = 0f
+                    }
+                    timeAxisLayer.translationX = timeTranslationX - layerOverscanInt
+                    if (appliedTimeAxisConfig.clipToDrawableRect) {
+                        clipRect(
+                            pane.outerRect.left,
+                            pane.outerRect.top,
+                            pane.outerRect.right,
+                            pane.outerRect.bottom,
+                        ) {
+                            drawLayer(timeAxisLayer)
+                        }
+                    } else {
+                        drawLayer(timeAxisLayer)
+                    }
                 } else {
-                    val frames = indicatorFrames.subByPane[pane.id].orEmpty()
-                    drawSubIndicatorFrames(
-                        pane = pane,
-                        frames = frames,
-                        style = appliedStyle,
-                    )
-                    if (activeNativeCrosshair == null) {
-                        // Sub objects own independent Tips rects, including
-                        // Android's optional shared physical sub pane.
-                        drawSubTopTips(
-                            paneId = pane.id,
-                            selection = KlineIndicatorTopTipsSelection.Latest(state.series.latest),
+                    val frames = dynamicSubFramesByPane[pane.id].orEmpty()
+                    traceKlineSection("Kanvas.sub.pane.draw") {
+                        if (frames.isNotEmpty()) {
+                            drawSubIndicatorFrames(
+                                pane = pane,
+                                frames = frames,
+                                style = appliedStyle,
+                            )
+                        }
+                        drawIndicatorOverlays(
+                            frames = indicatorFrames.subByPane[pane.id].orEmpty(),
+                            layout = layout,
+                            policy = renderConfig.indicatorOverlay,
                         )
                     }
-                    drawIndicatorOverlays(
-                        frames = indicatorFrames.subByPane[pane.id].orEmpty(),
-                        layout = layout,
-                        policy = renderConfig.indicatorOverlay,
-                    )
                 }
             }
             if (renderConfig.indicatorOverlay.allowOutsideMainRect) {
@@ -2819,6 +4759,7 @@ fun KanvasChart(
                     val pointer = snapshot.pointer.takeIf {
                         (snapshot.state as? DrawingState.Drawing)?.overlayId == overlay.id
                     }
+                    if (!tool.isVisible(overlay, drawingSpace, pointer)) return@forEach
                     with(tool) {
                         draw(
                             overlay = overlay,
@@ -2977,81 +4918,21 @@ fun KanvasChart(
                     }
                }
            }
-            activeNativeCrosshair?.let { resolvedCrosshair ->
-                // Draw main top tips before the crosshair tooltip so the tooltip
-                // card overlays the indicator labels rather than being obscured by them.
-                if (firstMainTipsPlan == null) {
-                    drawMainTopTips(KlineIndicatorTopTipsSelection.Cross(resolvedCrosshair))
-                }
-                val crossTooltipPresentation = resolveCachedCrossTooltipPresentation(
-                    crosshair = resolvedCrosshair,
-                    state = state,
-                    plotRect = plotRect,
-                    anchorRect = layout.mainPane.outerRect,
-                    config = renderConfig.crosshair,
-                    style = appliedStyle,
-                    densityScale = densityScale,
-                    timeLabelFormatter = appliedTimeLabelFormatter,
-                    provider = crossTooltipProvider,
-                    stableContentWidthPx = crossTooltipStableContentWidthPx,
-                )
-                val crossResult = drawCrosshair(
-                    crosshair = resolvedCrosshair,
-                    state = state,
-                    plotRect = plotRect,
-                    verticalRect = layout.chartRect,
-                    crosshairRightPx = layout.mainPane.plotRect.right,
-                    values = range,
-                    style = appliedStyle,
-                    config = renderConfig.crosshair,
-                    textMeasurer = textMeasurer,
-                    tooltipPresentation = crossTooltipPresentation,
-                )
-                val candle = crossResult?.candle
-                layout.timePane?.takeIf { candle != null }?.let { timePane ->
-                    drawCrossTimeLabel(
-                        candle = checkNotNull(candle),
-                        snappedX = checkNotNull(crossResult).snappedX,
-                        timeRect = timePane.plotRect,
-                        style = appliedStyle,
-                        textMeasurer = textMeasurer,
-                        interval = state.spec?.interval,
-                        config = renderConfig.crosshair,
-                        formatter = appliedTimeLabelFormatter,
-                    )
-                }
-                crossResult?.context?.let { nativeCrosshair ->
-                    // Paint the built-in Cross first, then Time, physical sub
-                    // panes, and finally main indicator Cross
-                    // decorations. Top Tips follow each object's Cross pass;
-                    // main frames are aggregated in their existing z order.
-                    val selection = KlineIndicatorTopTipsSelection.Cross(nativeCrosshair)
-                    layout.subPanes.forEach { pane ->
-                        drawSubPaneCrossValue(
-                            pane = pane,
-                            frames = indicatorFrames.subByPane[pane.id].orEmpty(),
-                            pointer = nativeCrosshair.inputPosition,
-                            style = appliedStyle,
-                            config = renderConfig.crosshair,
-                            precision = state.spec?.precision ?: KlineSpec.DefaultPrecision,
-                            textMeasurer = textMeasurer,
-                        )
-                        drawIndicatorCross(
-                            frames = indicatorFrames.subByPane[pane.id].orEmpty(),
+            if (needsMainTipsPreflight) {
+                traceKlineSection("Kanvas.interaction.draw") {
+                    drawInteractionLayer(
+                        geometry = KlineInteractionDrawGeometry(
+                            state = state,
                             layout = layout,
-                            crosshair = nativeCrosshair,
-                        )
-                        drawSubTopTips(paneId = pane.id, selection = selection)
-                    }
-                    drawIndicatorCross(
-                        frames = indicatorFrames.main,
-                        layout = layout,
-                        crosshair = nativeCrosshair,
+                            valueRange = range,
+                            indicatorFrames = indicatorFrames,
+                        ),
+                        inputPosition = crosshairState.value,
+                        mainTipsAlreadyDrawn = firstMainTipsPlan != null,
+                        drawBuiltInPrimitives = true,
+                        drawMainPriceLabel = true,
                     )
                 }
-            }
-            if (activeNativeCrosshair == null && firstMainTipsPlan == null) {
-                drawMainTopTips(KlineIndicatorTopTipsSelection.Latest(state.series.latest))
             }
             drawPaneResizeAffordances(
                 layout = layout,
@@ -3062,6 +4943,131 @@ fun KanvasChart(
             )
             if (watermarkConfig?.layer == KanvasWatermarkLayer.AboveContent) {
                 drawKanvasWatermark(watermarkConfig, layout, textMeasurer)
+            }
+        }
+        reportedLayout?.takeIf { independentCrossNodesEnabled }?.let { crossLayout ->
+            val crossConfig = renderConfig.crosshair
+            val plotRect = crossLayout.mainPane.plotRect
+            val strokePadding = max(
+                1f,
+                crossConfig.stroke.widthPx * densityScale / 2f + 1f,
+            )
+            val verticalNodeWidth = kotlin.math.ceil(strokePadding * 2f).toInt().coerceAtLeast(1)
+            val horizontalNodeHeight = verticalNodeWidth
+            Canvas(
+                Modifier
+                    .layoutId("cross-vertical-node")
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                        val position = crossNodePosition
+                        alpha = if (position != null && crossConfig.enabled) 1f else 0f
+                        translationX = (position?.snappedX ?: verticalNodeWidth / 2f) -
+                            verticalNodeWidth / 2f
+                    },
+            ) {
+                drawCrossVerticalLine(
+                    x = size.width / 2f,
+                    top = strokePadding,
+                    bottom = size.height - strokePadding,
+                    style = appliedStyle,
+                    config = crossConfig,
+                )
+            }
+
+            Canvas(
+                Modifier
+                    .layoutId("cross-horizontal-node")
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                        val position = crossNodePosition
+                        alpha = if (position != null && crossConfig.enabled) 1f else 0f
+                        translationY = (position?.rawY ?: horizontalNodeHeight / 2f) -
+                            horizontalNodeHeight / 2f
+                    },
+            ) {
+                drawCrossHorizontalLine(
+                    y = size.height / 2f,
+                    left = strokePadding,
+                    right = size.width - strokePadding,
+                    style = appliedStyle,
+                    config = crossConfig,
+                )
+            }
+
+            if (crossConfig.pointRadiusPx > 0f) {
+                val pointBase = (
+                    crossConfig.pointRadiusPx + crossConfig.pointBorderWidthPx / 2f
+                    ) * densityScale + 1f
+                Canvas(
+                    Modifier
+                        .layoutId("cross-point-node")
+                        .graphicsLayer {
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                            val position = crossNodePosition
+                            alpha = if (position != null && crossConfig.enabled) 1f else 0f
+                            translationX = (position?.snappedX ?: pointBase) - size.width / 2f
+                            translationY = (position?.rawY ?: pointBase) - size.height / 2f
+                        },
+                ) {
+                    drawCrossPoint(
+                        position = center,
+                        style = appliedStyle,
+                        config = crossConfig,
+                    )
+                }
+            }
+
+            val priceNodeHeight = kotlin.math.ceil(crossPriceNodeHeightPx).toInt().coerceAtLeast(1)
+            Canvas(
+                Modifier
+                    .layoutId("cross-price-node")
+                    .graphicsLayer {
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                        val position = crossNodePosition
+                        val content = crossPriceNodeContent
+                        alpha = if (
+                            position != null && content != null && crossConfig.enabled
+                        ) {
+                            1f
+                        } else {
+                            0f
+                        }
+                        val halfHeight = (content?.heightPx ?: 0f) / 2f
+                        val targetY = position?.rawY
+                            ?.coerceIn(
+                                plotRect.top + halfHeight,
+                                (plotRect.bottom - halfHeight).coerceAtLeast(plotRect.top + halfHeight),
+                            )
+                            ?: priceNodeHeight / 2f
+                        translationY = targetY - priceNodeHeight / 2f
+                    },
+            ) {
+                val content = crossPriceNodeContent ?: return@Canvas
+                drawCrossPriceLabel(
+                    text = content.text,
+                    y = size.height / 2f,
+                    plotRect = Rect(0f, 0f, size.width, size.height),
+                    style = appliedStyle,
+                    config = crossConfig,
+                    textMeasurer = textMeasurer,
+                )
+            }
+        }
+        if (!appliedPaneConfig.drawBelowTipsArea) {
+            Canvas(Modifier.fillMaxSize().layoutId("chart-interaction")) {
+                val interactionState = liveChartState?.value ?: state
+                val geometry = interactionDrawGeometryRef.value
+                    ?.takeIf { cached -> cached.state === interactionState }
+                    ?: return@Canvas
+                traceKlineSection("Kanvas.interaction.draw") {
+                    drawInteractionLayer(
+                        geometry = geometry,
+                        inputPosition = quantizedCrossSelectionPosition,
+                        mainTipsAlreadyDrawn = false,
+                        drawBuiltInPrimitives = false,
+                        drawMainPriceLabel = false,
+                    )
+                }
             }
         }
         if (slotContext != null && mainForegroundContent != null) {

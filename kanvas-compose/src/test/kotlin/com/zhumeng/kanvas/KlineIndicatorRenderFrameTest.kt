@@ -16,11 +16,13 @@ import com.zhumeng.kanvas.core.IndicatorOutput
 import com.zhumeng.kanvas.core.IndicatorPaintMode
 import com.zhumeng.kanvas.core.IndicatorPlacement
 import com.zhumeng.kanvas.core.KlineUiState
+import com.zhumeng.kanvas.core.KlineViewport
 import com.zhumeng.kanvas.core.MovingAverage
 import com.zhumeng.kanvas.core.Volume
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class KlineIndicatorRenderFrameTest {
@@ -182,6 +184,47 @@ class KlineIndicatorRenderFrameTest {
 
         assertTrue(frames.main.isEmpty())
         assertTrue(frames.subByPane.isEmpty())
+    }
+
+    @Test
+    fun `computed line paths are translated across sub-candle pan updates`() {
+        val cache = KlinePreparedIndicatorLineCache()
+        val identity = Any()
+        var producerCalls = 0
+
+        fun geometry(offsetPx: Float) = cache.resolve(
+            identity = identity,
+            range = IndexRange(0, 3),
+            plotRect = Rect(0f, 0f, 100f, 100f),
+            valueRange = KlineValueRange(0.0, 4.0),
+            viewport = KlineViewport(rightEdgeOffsetPx = offsetPx),
+            style = KlineChartStyle(),
+        ) {
+            producerCalls++
+            emptyList()
+        }
+
+        val first = geometry(offsetPx = 10f)
+        val shifted = geometry(offsetPx = 14f)
+
+        assertEquals(1, producerCalls)
+        assertSame(first.lines, shifted.lines)
+        assertEquals(4f, shifted.translationX)
+    }
+
+    @Test
+    fun `computed indicator path tiles overlap endpoints and preserve gaps`() {
+        val values = List(20) { index -> if (index == 10) Double.NaN else index.toDouble() }
+        val column = IndicatorColumn.of("value", values)
+
+        assertEquals(
+            listOf(
+                IndexRange(0, 9),
+                IndexRange(8, 10),
+                IndexRange(11, 20),
+            ),
+            resolveKlineIndicatorPathRanges(column, IndexRange(0, values.size)),
+        )
     }
 
     private fun item(
