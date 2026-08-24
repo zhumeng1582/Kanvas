@@ -348,6 +348,7 @@ data class KlineUiState(
     val viewportConstraints: KlineViewportConstraints? = null,
     val loadingState: KlineLoadingState = KlineLoadingState.None,
     val loadMoreRequestId: Long? = null,
+    val loadMoreError: String? = null,
     val canLoadMoreOlder: Boolean = true,
     val interactionEpoch: Long = 0L,
     val revision: Long = 0L,

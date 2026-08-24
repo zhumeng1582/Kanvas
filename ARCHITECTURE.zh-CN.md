@@ -194,10 +194,10 @@ sequenceDiagram
 
 `example` 展示宿主如何组装完整页面：
 
-- 创建 `KlineController`、行情 fixture 和时间周期状态。
-- 注册内置指标插件并连接 `IndicatorRuntimeCoordinator`。
-- 将 `KlineUiState`、`IndicatorRuntimeSnapshot`、Renderer Registry 和 Drawing Controller
-  传给 `KanvasChart`。
+- 通过 `rememberKanvasChartState` 创建标准 Facade，并维护行情 fixture 和时间周期状态。
+- 注册内置指标插件目录，由 Facade 持有 `KlineController`、`IndicatorRuntimeCoordinator`、
+  Renderer 生命周期和 Drawing Controller。
+- 将 `KanvasChartState`、集中配置、回调和订单标记传给 `KanvasChart`。
 - 提供主图/副图指标切换、参数编辑、线宽与颜色设置。
 - 提供深浅主题和红涨绿跌/绿涨红跌切换。
 - 处理系统栏安全区、底部指标栏和指标设置 Bottom Sheet。
@@ -208,7 +208,7 @@ Example 只承担宿主组装和交互演示，图表领域状态、指标计算
 
 | 扩展目标 | 接口或配置 |
 | --- | --- |
-| 接入行情源 | 在宿主层将响应转换为 `KlineCandle`，调用 `KlineController` |
+| 接入行情源 | 在宿主层将响应转换为 `KlineCandle`，标准接入调用 `KanvasChartState`；高级接入可调用 `KlineController` |
 | 新增指标算法 | 实现 `IndicatorCalculator` |
 | 新增可配置指标 | 实现 `KlineIndicatorPlugin<C>` 并提供类型化配置 |
 | 自定义指标绘制 | 实现 `KlineIndicatorRenderer` |

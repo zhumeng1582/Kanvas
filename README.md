@@ -20,7 +20,7 @@ Device performance gates and the custom main-chart renderer SPI are documented i
 [the Chinese performance guide](docs/PERFORMANCE.zh-CN.md).
 
 Download the installable [Kanvas example APK v0.1.0](docs/downloads/kanvas-example-0.1.0.apk).
-It is a release build signed with an Android debug certificate for demonstration
+It is a debug build signed with an Android debug certificate for demonstration
 and testing only; production distribution requires your own signing key.
 
 <p align="center">

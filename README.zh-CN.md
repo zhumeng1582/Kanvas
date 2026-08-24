@@ -16,7 +16,7 @@ Kanvas 是使用 Kotlin 和 Jetpack Compose 构建的 Android 原生 K 线图、
 设备性能基线与自定义主图接入请阅读[性能验证与扩展指南](docs/PERFORMANCE.zh-CN.md)。
 
 下载可直接安装的 [Kanvas Example APK v0.1.0](docs/downloads/kanvas-example-0.1.0.apk)。
-该 Release 包使用 Android debug 证书签名，仅用于演示和测试；正式分发请使用自己的
+该 Debug 包使用 Android debug 证书签名，仅用于演示和测试；正式分发请使用自己的
 生产签名证书。
 
 <p align="center">
@@ -50,7 +50,7 @@ Kanvas 是使用 Kotlin 和 Jetpack Compose 构建的 Android 原生 K 线图、
 
 目前可用的模块包括：
 
-- `kanvas-core`：新数据在前的 K 线序列、按时间戳合并、右边界视口计算、LRU
+- `kanvas-core`：严格按最新数据在前排列的 K 线序列、显式数据更新、右边界视口计算、LRU
   控制器/缓存、加载事件、不可变指标快照，以及指标激活/保留生命周期状态。
 - `kanvas-compose`：Compose Canvas/图表 API，以及 Kotlin 原生指标插件
   SPI、渲染器、有状态生命周期运行时和 Android MA/成交量示例插件。
@@ -248,7 +248,7 @@ KanvasChart(
 
 ## 数据加载与实时更新
 
-Kanvas 将数据操作明确区分为三类：
+Kanvas 将数据操作明确区分为四类：
 
 | 场景 | API | 行为 |
 | --- | --- | --- |
