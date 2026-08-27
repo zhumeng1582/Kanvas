@@ -1059,9 +1059,45 @@ private data class KlineCrossNodePosition(
     val rawY: Float,
 )
 
-/** Plain draw-thread handoff; updating it must not schedule composition. */
+/**
+ * Draw-thread handoff from the content Canvas to the independently invalidated
+ * Cross nodes.
+ *
+ * Most Cross movement reads [value] directly and therefore does not recompose
+ * the chart. A candle/viewport frame can change the value range without moving
+ * the pointer, though, so [observedValue] exposes a narrow invalidation signal
+ * for the derived Cross content that depends on the completed draw geometry.
+ */
 private class KlineInteractionDrawGeometryRef {
     var value: KlineInteractionDrawGeometry? = null
+
+    private val version = mutableLongStateOf(0L)
+
+    val observedValue: KlineInteractionDrawGeometry?
+        get() {
+            version.longValue
+            return value
+        }
+
+    fun update(next: KlineInteractionDrawGeometry) {
+        val previous = value
+        value = next
+        if (
+            previous == null ||
+            previous.state !== next.state ||
+            previous.layout != next.layout ||
+            previous.valueRange != next.valueRange ||
+            previous.indicatorFrames !== next.indicatorFrames
+        ) {
+            version.longValue++
+        }
+    }
+
+    fun clear() {
+        if (value == null) return
+        value = null
+        version.longValue++
+    }
 }
 
 /** Small per-chart LRU for the built-in computed Top Tips text measurements. */
@@ -1823,8 +1859,10 @@ fun KanvasChart(
     ) {
         derivedStateOf {
             val raw = crosshairState.value ?: return@derivedStateOf null
-            val geometry = interactionDrawGeometryRef.value ?: return@derivedStateOf raw
-            val current = liveChartState?.value ?: state
+            val current = currentChartState()
+            val geometry = interactionDrawGeometryRef.observedValue
+                ?.takeIf { cached -> cached.state === current }
+                ?: return@derivedStateOf raw
             val plotRect = geometry.layout.mainPane.plotRect
             val crosshair = resolveKlineIndicatorCrosshairContext(
                 inputPosition = raw,
@@ -1861,7 +1899,10 @@ fun KanvasChart(
         derivedStateOf {
             if (!independentCrossNodesEnabled) return@derivedStateOf null
             val raw = crosshairState.value ?: return@derivedStateOf null
-            val geometry = interactionDrawGeometryRef.value ?: return@derivedStateOf null
+            val current = currentChartState()
+            val geometry = interactionDrawGeometryRef.observedValue
+                ?.takeIf { cached -> cached.state === current }
+                ?: return@derivedStateOf null
             val plotRect = geometry.layout.mainPane.plotRect
             val rawY = raw.y.coerceIn(plotRect.top, plotRect.bottom)
             val precision = geometry.state.spec?.precision ?: KlineSpec.DefaultPrecision
@@ -1877,7 +1918,7 @@ fun KanvasChart(
             if (!independentCrossNodesEnabled) return@derivedStateOf null
             val raw = crosshairState.value ?: return@derivedStateOf null
             val layout = reportedLayout ?: return@derivedStateOf null
-            val current = liveChartState?.value ?: state
+            val current = currentChartState()
             val crosshair = resolveKlineIndicatorCrosshairContext(
                 inputPosition = raw,
                 state = current,
@@ -3662,13 +3703,13 @@ fun KanvasChart(
             // so gesture frames invalidate Canvas without recomposing the
             // complete chart function.
             val state = liveChartState?.value ?: state
-            if (!appliedPaneConfig.drawBelowTipsArea) {
-                interactionDrawGeometryRef.value = null
-            }
             // Capture the host's thread-safe invalidate epoch so asynchronous
             // stateful renderers can request a new Canvas frame without
             // mutating Compose state from DrawScope.
-            if (lifecycleEpoch < 0L || gestureValueRangeEpoch < 0L) return@Canvas
+            if (lifecycleEpoch < 0L || gestureValueRangeEpoch < 0L) {
+                if (!appliedPaneConfig.drawBelowTipsArea) interactionDrawGeometryRef.clear()
+                return@Canvas
+            }
             val baseLayout = reportedLayout?.takeIf {
                 canvasSize.width.toFloat() == size.width && canvasSize.height.toFloat() == size.height
             } ?: resolveChartLayout(
@@ -3688,6 +3729,7 @@ fun KanvasChart(
                 if (watermarkConfig?.layer == KanvasWatermarkLayer.AboveContent) {
                     drawKanvasWatermark(watermarkConfig, baseLayout, textMeasurer)
                 }
+                if (!appliedPaneConfig.drawBelowTipsArea) interactionDrawGeometryRef.clear()
                 return@Canvas
             }
             val hideMainIndicators = hideMainIndicatorsInLineChartMode && isLineLikeMainChart
@@ -3700,7 +3742,10 @@ fun KanvasChart(
                     hideMainIndicators = hideMainIndicators,
                     densityScale = densityScale,
                 )
-            } ?: return@Canvas
+            } ?: run {
+                if (!appliedPaneConfig.drawBelowTipsArea) interactionDrawGeometryRef.clear()
+                return@Canvas
+            }
             val viewportDrivenRangeUpdate = gestureValueRangeRef.hasViewportChanged(state.viewport)
             val seriesOnlyRealtimeRangeUpdate =
                 rangeUpdateRef.realtimeMode &&
@@ -3778,7 +3823,10 @@ fun KanvasChart(
                 ?.let { baseLayout.withMainTipsInset(it.totalClaimedHeightPx) }
                 ?: baseLayout
             val plotRect = layout.mainPane.plotRect
-            if (plotRect.width <= 0f || plotRect.height <= 0f) return@Canvas
+            if (plotRect.width <= 0f || plotRect.height <= 0f) {
+                if (!appliedPaneConfig.drawBelowTipsArea) interactionDrawGeometryRef.clear()
+                return@Canvas
+            }
             // Tips only shifts the vertical top of the main pane. Horizontal
             // visibility and source values are unchanged, so the base range
             // (and its one smoother update) is the final range as well.
@@ -3807,11 +3855,13 @@ fun KanvasChart(
                 }
             }
             if (!needsMainTipsPreflight) {
-                interactionDrawGeometryRef.value = KlineInteractionDrawGeometry(
-                    state = state,
-                    layout = layout,
-                    valueRange = range,
-                    indicatorFrames = indicatorFrames,
+                interactionDrawGeometryRef.update(
+                    KlineInteractionDrawGeometry(
+                        state = state,
+                        layout = layout,
+                        valueRange = range,
+                        indicatorFrames = indicatorFrames,
+                    ),
                 )
             }
             firstMainTipsPlan?.let { plan ->

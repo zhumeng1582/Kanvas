@@ -257,6 +257,26 @@ class KlineControllerTest {
     }
 
     @Test
+    fun `cancel load more clears only the matching request token`() = runBlocking {
+        val controller = KlineController()
+        val selectedSpec = spec("BTC-USDT")
+        controller.select(selectedSpec)
+        controller.replaceAll(selectedSpec, listOf(candle(300L), candle(200L), candle(100L)))
+        val event = async(start = CoroutineStart.UNDISPATCHED) { controller.events.first() }
+        assertTrue(controller.requestLoadMore(showLoading = true))
+        val request = assertIs<KlineEvent.LoadMore>(event.await())
+
+        assertFalse(controller.cancelLoadMore(request.requestId + 1L))
+        assertEquals(request.requestId, controller.state.value.loadMoreRequestId)
+        assertEquals(KlineLoadingState.LoadingMore, controller.state.value.loadingState)
+
+        assertTrue(controller.cancelLoadMore(request.requestId))
+        assertEquals(null, controller.state.value.loadMoreRequestId)
+        assertEquals(KlineLoadingState.None, controller.state.value.loadingState)
+        assertTrue(controller.requestLoadMore())
+    }
+
+    @Test
     fun `load more token rejects stale completion and records failure and exhaustion`() = runBlocking {
         val controller = KlineController()
         val spec = spec("BTC-USDT")

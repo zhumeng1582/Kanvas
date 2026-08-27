@@ -272,6 +272,14 @@ before publishing the historical page, so candles and indicator lines appear
 together. The synchronous `completeLoadMore` remains available when the caller
 owns indicator-output coordination.
 
+Realtime ticks or indicator-registry changes can invalidate an ahead-of-chart
+calculation. The prepared variant retries against the latest snapshot for a
+bounded number of attempts. If no attempt can be committed atomically, it
+returns `IgnoredStalePreparedData`, cancels only the matching request token,
+clears its loading state, and leaves the candle series unchanged. Wait for the
+next `KlineEvent.LoadMore` instead of reusing the cancelled request ID. It never
+falls back to publishing candles before their indicator output is ready.
+
 Core does not sort, de-duplicate, or merge exchange data. Hosts must supply
 strictly newest-first candles with unique timestamps and use explicit data
 operations:

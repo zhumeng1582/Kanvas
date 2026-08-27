@@ -156,6 +156,8 @@ RenderNode 原子顺序，自定义指标仍先按 `zIndex` 分到 candle 下方
 ## 热路径约束
 
 - 数据源应在后台完成排序、去重和页重叠处理，再交给 `KlineSeries`。
-- 大历史页优先调用 `completeLoadMorePrepared`，它会在后台准备指标，并以快照身份做 O(1) 原子提交。
+- 大历史页优先调用 `completeLoadMorePrepared`；准备成功时会在后台完成指标计算，
+  并以快照身份做 O(1) 原子提交。有限重试仍无法对齐实时数据时，该方法返回
+  `IgnoredStalePreparedData` 且不发布历史页。
 - 指标配置必须具有结构相等语义；集合字段应在构造时复制，避免外部修改破坏缓存键。
 - 自定义指标、主图 renderer、Tooltip provider 和绘图工具都运行在交互/绘制相关路径，不应执行 I/O 或长任务。

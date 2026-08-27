@@ -176,12 +176,16 @@ class IndicatorRuntime {
         require(definitionList.map(IndicatorDefinition::key).distinct().size == definitionList.size) {
             "Indicator definitions must not contain duplicate keys"
         }
+        // Candle equality is shared by every active definition. In particular,
+        // an appended historical page can share a very long prefix with the
+        // previous series, so repeating this comparison per indicator turns a
+        // single O(n) check into O(n * indicatorCount) work.
+        val sameCandles =
+            previous?.series?.candles == series.candles && previous.computeMode == computeMode
 
         val entries = definitionList.map { definition ->
             val previousEntry = previous?.entry(definition.key)
             val definitionUnchanged = previousEntry?.definition == definition
-            val sameCandles =
-                previous?.series?.candles == series.candles && previous.computeMode == computeMode
             val output = if (definitionUnchanged && sameCandles) {
                 previousEntry.output.withCanonicalKey(definition.key)
             } else {

@@ -536,16 +536,28 @@ sequenceDiagram
     participant G as Gesture
     participant C as KlineController
     participant H as Host / Repository
+    participant F as KanvasChartState
     participant I as Indicator Runtime
 
     G->>C: 预计惯性终点接近历史边界
     C->>C: 先写入 loadingState + requestId
     C-->>H: LoadMore(beforeTimestamp, requestId)
     H->>H: 请求并规范化历史页
-    H->>I: 为合并后的 Series 预计算指标
-    I-->>H: prepared snapshot
-    H->>C: completeLoadMorePrepared(requestId, page)
-    C->>C: 校验 requestId，尾部追加
+    H->>F: completeLoadMorePrepared(requestId, page)
+    loop 当前 Series 或 Registry 使快照失效时做有限重试
+        F->>I: 为合并后的 Series 预计算指标
+        I-->>F: prepared snapshot
+    end
+    alt prepared snapshot 与当前输入一致
+        F->>C: completeLoadMorePrepared(requestId, source, prepared)
+        C->>C: 原子发布 Series
+        F->>I: publishPrepared(snapshot)
+        F-->>H: Applied
+    else 重试耗尽
+        F->>C: cancelLoadMore(requestId)
+        C->>C: 仅清除匹配令牌和 loading
+        F-->>H: IgnoredStalePreparedData
+    end
 ```
 
 业务侧可以这样收集：
@@ -582,14 +594,19 @@ LaunchedEffect(chartState, spec) {
 }
 ```
 
-这里有四条不可省略的约束：
+这里有五条不可省略的约束：
 
 1. Core 不替交易所响应排序和去重，宿主必须规范化；
 2. 新页必须严格早于当前 oldest；
 3. 完成回调必须携带原 requestId，过期响应会被拒绝；
-4. 历史页追加到 newest-first 列表尾部，旧 index 不变，所以视口锚点不变。
+4. 历史页追加到 newest-first 列表尾部，旧 index 不变，所以视口锚点不变；
+5. 预计算持续被实时行情或指标配置打断时，取消当前令牌且不追加历史页，
+   下一次滑动再产生新的 requestId。
 
-`completeLoadMorePrepared` 先算指标、再一起发布蜡烛和指标快照，避免出现一帧只有 K 线、下一帧才补指标的视觉撕裂。
+`completeLoadMorePrepared` 先算指标、再一起发布蜡烛和指标快照，避免出现一帧只有 K 线、
+下一帧才补指标的视觉撕裂。它只会原子成功或不发布，不会退化为 candles-first 提交。
+低层集成可通过 `KlineController.cancelLoadMore(requestId)` 精确取消请求；高层
+`KanvasChartState` 在有限重试耗尽时已经自动执行该操作，业务层通常无需手动调用。
 
 ## 11. 一张图为什么需要多个 Pane
 

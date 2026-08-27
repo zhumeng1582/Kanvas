@@ -74,6 +74,29 @@ class DrawingControllerTest {
     }
 
     @Test
+    fun `restored mutable point lists cannot mutate controller snapshots`() {
+        val points = mutableListOf<DrawingPoint?>(
+            DrawingPoint(5L, 10.0),
+            DrawingPoint(3L, 12.0),
+        )
+        val controller = DrawingController()
+        controller.switchSymbol(
+            symbol = "BTC-USDT",
+            restored = listOf(
+                DrawingOverlay(
+                    symbol = "BTC-USDT",
+                    type = DrawingTypeDescriptor.TwoPointLine,
+                    points = points,
+                ),
+            ),
+        )
+
+        points[0] = DrawingPoint(1L, 99.0)
+
+        assertEquals(DrawingPoint(5L, 10.0), controller.snapshot.overlays.single().points[0])
+    }
+
+    @Test
     fun `offscreen built in overlays are culled before hit testing`() {
         val horizontal = DrawingOverlay(
             symbol = "BTC-USDT",

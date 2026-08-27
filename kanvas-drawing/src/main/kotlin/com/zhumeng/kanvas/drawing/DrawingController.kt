@@ -5,7 +5,6 @@
 
 package com.zhumeng.kanvas.drawing
 
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
@@ -37,7 +36,6 @@ private class DrawingOverlayReplacementList(
     }
 }
 
-@Immutable
 data class DrawingSnapshot(
     val symbol: String = "",
     val overlays: List<DrawingOverlay> = emptyList(),
@@ -77,7 +75,12 @@ class DrawingController(
         persist()
         snapshot = DrawingSnapshot(
             symbol = symbol,
-            overlays = restored.filter { it.symbol == symbol }.sortedBy(DrawingOverlay::zIndex),
+            overlays = restored
+                .asSequence()
+                .filter { it.symbol == symbol }
+                .map(DrawingOverlay::immutableSnapshot)
+                .sortedBy(DrawingOverlay::zIndex)
+                .toList(),
             state = if (snapshot.visible) DrawingState.Prepared else DrawingState.Exited,
             magnetMode = snapshot.magnetMode,
             visible = snapshot.visible,
@@ -278,7 +281,12 @@ class DrawingController(
     fun updateSelected(transform: (DrawingOverlay) -> DrawingOverlay): Boolean {
         val editing = snapshot.state as? DrawingState.Editing ?: return false
         val overlay = snapshot.overlays[overlayIndex(editing.overlayId)]
-        replace(transform(overlay).copy(id = overlay.id, symbol = overlay.symbol, type = overlay.type), editing)
+        replace(
+            transform(overlay)
+                .copy(id = overlay.id, symbol = overlay.symbol, type = overlay.type)
+                .immutableSnapshot(),
+            editing,
+        )
         persist()
         recordHistory()
         return true
@@ -467,3 +475,6 @@ class DrawingController(
         persist()
     }
 }
+
+/** Seals caller-owned mutable point lists before an overlay enters controller state. */
+private fun DrawingOverlay.immutableSnapshot(): DrawingOverlay = copy(points = points.toList())

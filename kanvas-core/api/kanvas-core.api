@@ -558,6 +558,7 @@ public final class com/zhumeng/kanvas/core/KlineController {
 	public final fun animateMoveToDateTime (JIJLkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public static synthetic fun animateMoveToDateTime$default (Lcom/zhumeng/kanvas/core/KlineController;JIJLkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
 	public final fun cachedSpecKeys ()Ljava/util/List;
+	public final fun cancelLoadMore (J)Z
 	public final fun clearCache ()V
 	public final fun clearLoading ()Lcom/zhumeng/kanvas/core/KlineUiState;
 	public final fun completeLoadMore (JLjava/util/List;Z)Lcom/zhumeng/kanvas/core/KlineDataResult;

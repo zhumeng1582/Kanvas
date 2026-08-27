@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 
+private const val PreparedLoadMoreMaxAttempts = 3
+
 /** Input ordering accepted by the high-level data APIs. */
 enum class KanvasCandleOrder {
     NewestFirst,
@@ -234,6 +236,9 @@ class KanvasChartState internal constructor(
      * Calculates indicators for the merged historical series before exposing
      * the new candle page. Prefer this from coroutine-based data loaders when
      * active indicator lines must appear in the same frame as older candles.
+     * If repeated realtime or registry changes prevent an atomic commit, the
+     * request is cancelled and [KlineDataDisposition.IgnoredStalePreparedData]
+     * is returned without publishing the historical page.
      */
     suspend fun completeLoadMorePrepared(
         requestId: Long,
@@ -242,7 +247,9 @@ class KanvasChartState internal constructor(
         order: KanvasCandleOrder = KanvasCandleOrder.NewestFirst,
     ): KlineDataResult {
         val normalized = candles.inOrder(order)
-        while (true) {
+        var attempts = 0
+        while (attempts < PreparedLoadMoreMaxAttempts) {
+            attempts++
             val before = state.value
             if (before.loadMoreRequestId != requestId) {
                 return controller.completeLoadMore(requestId, normalized, hasMoreOlder)
@@ -277,6 +284,18 @@ class KanvasChartState internal constructor(
             }
             return result
         }
+        // Do not silently degrade this Prepared API into a candles-first
+        // commit: that would expose a frame whose indicator output is still
+        // aligned to the old series. Cancel only this request so a newer token
+        // created concurrently cannot be cleared by the exhausted attempt.
+        val cancelled = controller.cancelLoadMore(requestId)
+        return KlineDataResult(
+            if (cancelled) {
+                KlineDataDisposition.IgnoredStalePreparedData
+            } else {
+                KlineDataDisposition.IgnoredStaleLoadMore
+            },
+        )
     }
 
     /** Completes the currently pending request without making callers retain its token. */
@@ -323,6 +342,15 @@ class KanvasChartState internal constructor(
     internal fun updateViewportConstraints(
         constraints: KlineViewportConstraints,
     ): KlineUiState = controller.updateViewportConstraints(constraints)
+
+    internal fun dispatchLoadMoreRequest(
+        showLoading: Boolean,
+        onRequested: (showLoading: Boolean) -> Unit,
+    ): Boolean {
+        val accepted = requestLoadMore(showLoading)
+        if (accepted) onRequested(showLoading)
+        return accepted
+    }
 
     private fun requireSpec(): KlineSpec = requireNotNull(state.value.spec) {
         "Select a KlineSpec or call setMarket before updating chart data"
@@ -417,8 +445,7 @@ fun KanvasChart(
             },
             onLayoutChange = callbacks.onLayoutChange,
             onLoadMoreRequested = { showLoading ->
-                state.requestLoadMore(showLoading)
-                callbacks.onLoadMoreRequested(showLoading)
+                state.dispatchLoadMoreRequest(showLoading, callbacks.onLoadMoreRequested)
             },
             onMoveToInitialPosition = state::moveToLatest,
             onCrosshairChange = callbacks.onCrosshairChange,

@@ -453,6 +453,18 @@ class KlineController(
         next
     }
 
+    /** Cancels only the matching in-flight request, leaving a newer request untouched. */
+    fun cancelLoadMore(requestId: Long): Boolean = synchronized(lock) {
+        val current = mutableState.value
+        if (current.loadMoreRequestId != requestId) return false
+        mutableState.value = current.copy(
+            loadingState = KlineLoadingState.None,
+            loadMoreRequestId = null,
+            loadMoreError = null,
+        )
+        true
+    }
+
     fun resetLoadMoreAvailability(): KlineUiState = synchronized(lock) {
         val current = mutableState.value
         val next = current.copy(canLoadMoreOlder = true, loadMoreError = null)

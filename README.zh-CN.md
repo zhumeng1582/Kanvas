@@ -273,6 +273,12 @@ Kanvas 将数据操作明确区分为四类：
 指标结果，避免滑动后先看到 K 线、下一帧才出现指标线。同步的 `completeLoadMore`
 仍然保留，适合由调用方自行协调指标结果的场景。
 
+实时 Tick 或指标注册表变化可能使预计算快照失效。prepared 版本会基于最新快照做
+有限次数的重试；如果始终无法原子提交，则返回 `IgnoredStalePreparedData`，只取消
+匹配的请求令牌、退出 loading，并保持当前 K 线序列不变。此时应等待下一条
+`KlineEvent.LoadMore`，不要复用已取消的旧 requestId。该 API 不会退化为先发布 K 线、
+再异步补齐指标。
+
 推荐在一个与 Controller 生命周期一致的协程中收集加载事件。每个事件都包含请求令牌和明确的
 `beforeTimestampMillis` 游标：
 

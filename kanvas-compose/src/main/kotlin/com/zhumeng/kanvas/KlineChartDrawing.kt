@@ -43,8 +43,9 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.PaintingStyle
 import androidx.compose.ui.graphics.Path
@@ -649,7 +650,12 @@ private fun DrawScope.drawNativeSimpleTextArea(
 }
 
 private data class KlineConfiguredLinePaintKey(
-    val stroke: KlineStrokeStyle,
+    val color: Color?,
+    val widthPx: Float,
+    val dashPatternPx: List<Float>,
+    val paintStyle: KlinePaintStyle,
+    val blendMode: BlendMode,
+    val isAntiAlias: Boolean,
     val fallbackColor: androidx.compose.ui.graphics.Color,
     val densityScale: Float,
 )
@@ -666,20 +672,32 @@ private class KlineConfiguredLinePaintCache {
         fallbackColor: androidx.compose.ui.graphics.Color,
         densityScale: Float,
     ): Paint {
-        val key = KlineConfiguredLinePaintKey(stroke, fallbackColor, densityScale)
+        // Cache keys must not retain a caller-owned mutable dash list. A key
+        // whose hash changes after insertion can become unreachable inside a
+        // LinkedHashMap and defeat both reuse and the LRU size bound.
+        val key = KlineConfiguredLinePaintKey(
+            color = stroke.color,
+            widthPx = stroke.widthPx,
+            dashPatternPx = stroke.dashPatternPx.toList(),
+            paintStyle = stroke.paintStyle,
+            blendMode = stroke.blendMode,
+            isAntiAlias = stroke.isAntiAlias,
+            fallbackColor = fallbackColor,
+            densityScale = densityScale,
+        )
         return paints.getOrPut(key) {
             Paint().apply {
-                color = stroke.color ?: fallbackColor
-                strokeWidth = stroke.widthPx * densityScale
-                style = if (stroke.paintStyle == KlinePaintStyle.Fill) {
+                color = key.color ?: key.fallbackColor
+                strokeWidth = key.widthPx * key.densityScale
+                style = if (key.paintStyle == KlinePaintStyle.Fill) {
                     PaintingStyle.Fill
                 } else {
                     PaintingStyle.Stroke
                 }
-                blendMode = stroke.blendMode
-                isAntiAlias = stroke.isAntiAlias
-                pathEffect = stroke.dashPatternPx.takeIf { it.isNotEmpty() }?.let { pattern ->
-                    val scaled = FloatArray(pattern.size) { index -> pattern[index] * densityScale }
+                blendMode = key.blendMode
+                isAntiAlias = key.isAntiAlias
+                pathEffect = key.dashPatternPx.takeIf { it.isNotEmpty() }?.let { pattern ->
+                    val scaled = FloatArray(pattern.size) { index -> pattern[index] * key.densityScale }
                     PathEffect.dashPathEffect(scaled)
                 }
             }

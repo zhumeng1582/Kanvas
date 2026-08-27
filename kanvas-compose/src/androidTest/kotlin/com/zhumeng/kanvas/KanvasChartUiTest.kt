@@ -33,6 +33,7 @@ import com.zhumeng.kanvas.core.KlineViewport
 import com.zhumeng.kanvas.core.KlineViewportConstraints
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -102,6 +103,64 @@ class KanvasChartUiTest {
         }
         compose.waitForIdle()
         assertTrue(sawCross)
+    }
+
+    @Test
+    fun persistentCrossPriceRefreshesWhenLowLevelStateChanges() {
+        var chartState by mutableStateOf(fixtureState())
+        var sawCross = false
+        val hiddenMarker = KlinePriceMarkerRenderConfig(show = false)
+        val renderConfig = KlineChartRenderConfig(
+            grid = KlineGridRenderConfig(showYAxisTicks = false),
+            crosshair = KlineCrosshairRenderConfig(showTooltip = false),
+            candleOverlay = KlineCandleOverlayRenderConfig(
+                high = hiddenMarker,
+                low = hiddenMarker,
+                inViewPrice = hiddenMarker,
+                offViewPrice = hiddenMarker,
+                showLatestPoint = false,
+                countdown = KlineCountdownRenderConfig(show = false),
+            ),
+        )
+        compose.setContent {
+            KanvasChart(
+                state = chartState,
+                onViewportChange = {},
+                onCrosshairChange = { if (it != null) sawCross = true },
+                renderConfig = renderConfig,
+                modifier = Modifier.size(360.dp, 480.dp),
+            )
+        }
+
+        compose.onRoot().performTouchInput { click(Offset(centerX, centerY)) }
+        compose.waitForIdle()
+        assertTrue("Cross did not enter its persistent state", sawCross)
+        val before = compose.onRoot()
+            .captureToImage()
+            .toPixelMap()
+            .partitionedFingerprint(columns = 24, rows = 32)
+
+        compose.runOnIdle {
+            val shifted = chartState.series.candles.map { candle ->
+                candle.copy(
+                    open = candle.open + 1_000.0,
+                    high = candle.high + 1_000.0,
+                    low = candle.low + 1_000.0,
+                    close = candle.close + 1_000.0,
+                )
+            }
+            chartState = chartState.copy(
+                series = KlineSeries.of(shifted),
+                revision = chartState.revision + 1L,
+            )
+        }
+        compose.waitForIdle()
+        val after = compose.onRoot()
+            .captureToImage()
+            .toPixelMap()
+            .partitionedFingerprint(columns = 24, rows = 32)
+
+        assertNotEquals("Cross price stayed on the previous value range", before, after)
     }
 
     @Test

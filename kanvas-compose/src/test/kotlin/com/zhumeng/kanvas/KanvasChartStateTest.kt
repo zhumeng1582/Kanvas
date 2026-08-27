@@ -6,8 +6,13 @@
 package com.zhumeng.kanvas
 
 import com.zhumeng.kanvas.core.IndicatorRuntimeCoordinator
+import com.zhumeng.kanvas.core.IndicatorCalculator
+import com.zhumeng.kanvas.core.IndicatorDefinition
+import com.zhumeng.kanvas.core.IndicatorKey
+import com.zhumeng.kanvas.core.IndicatorOutput
 import com.zhumeng.kanvas.core.KlineCandle
 import com.zhumeng.kanvas.core.KlineController
+import com.zhumeng.kanvas.core.KlineDataDisposition
 import com.zhumeng.kanvas.core.KlineInterval
 import com.zhumeng.kanvas.core.KlineSpec
 import com.zhumeng.kanvas.core.KlineViewport
@@ -16,8 +21,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class KanvasChartStateTest {
@@ -63,6 +71,23 @@ class KanvasChartStateTest {
     }
 
     @Test
+    fun `load more observation runs only for an accepted request`() {
+        val fixture = fixture()
+        val observations = mutableListOf<Boolean>()
+
+        assertFalse(fixture.state.dispatchLoadMoreRequest(false, observations::add))
+        fixture.state.setMarket(
+            spec = KlineSpec("BTC-USDT", KlineInterval.minutes(15), precision = 2),
+            candles = listOf(candle(300L), candle(200L), candle(100L)),
+        )
+
+        assertTrue(fixture.state.dispatchLoadMoreRequest(false, observations::add))
+        assertFalse(fixture.state.dispatchLoadMoreRequest(true, observations::add))
+        assertEquals(listOf(false), observations)
+        fixture.close()
+    }
+
+    @Test
     fun `indicator facade toggles and updates typed plugin configuration`() {
         val plugin = KlineMovingAverageIndicatorPlugin()
         val catalog = KlineIndicatorPluginCatalog.of(plugin.bind())
@@ -91,16 +116,65 @@ class KanvasChartStateTest {
         )
 
         assertTrue(fixture.state.requestLoadMore())
-        fixture.state.completeLoadMorePrepared(
+        val result = fixture.state.completeLoadMorePrepared(
             candles = listOf(candle(50L), candle(0L)),
             hasMoreOlder = false,
         )
 
+        assertEquals(KlineDataDisposition.Applied, result.disposition)
         val chart = fixture.state.state.value
         val registry = fixture.state.indicators.snapshot()
         val indicators = checkNotNull(fixture.state.indicators.calculationState.value)
         assertTrue(indicators.matches(chart, registry))
         assertEquals(chart.series.size, indicators.output(plugin.key)?.seriesSize)
+        fixture.close()
+    }
+
+    @Test
+    fun `prepared historical completion cancels without publishing after bounded contention`() = runBlocking {
+        val calculationAttempts = AtomicInteger()
+        lateinit var chartState: KanvasChartState
+        val indicatorKey = IndicatorKey.computed("contended")
+        val plugin = object : KlineIndicatorPlugin<KlineEmptyIndicatorPluginConfig> {
+            override val key: IndicatorKey = indicatorKey
+            override val defaultConfig: KlineEmptyIndicatorPluginConfig = KlineEmptyIndicatorPluginConfig
+
+            override fun createDefinition(config: KlineEmptyIndicatorPluginConfig): IndicatorDefinition =
+                IndicatorDefinition(
+                    key = indicatorKey,
+                    calculator = IndicatorCalculator { input ->
+                        val current = chartState.state.value
+                        if (current.series.size < input.series.size) {
+                            calculationAttempts.incrementAndGet()
+                            val latest = checkNotNull(current.series.latest)
+                            chartState.updateLatest(latest.copy(close = latest.close + 0.01))
+                        }
+                        IndicatorOutput.empty(indicatorKey, input.series.size)
+                    },
+                )
+        }
+        val fixture = fixture(KlineIndicatorPluginCatalog.of(plugin.bind()))
+        chartState = fixture.state
+        fixture.state.indicators.show(indicatorKey)
+        fixture.state.setMarket(
+            spec = KlineSpec("BTC-USDT", KlineInterval.minutes(15), precision = 2),
+            candles = listOf(candle(300L), candle(200L), candle(100L)),
+        )
+        assertTrue(fixture.state.requestLoadMore())
+
+        val result = withTimeout(5_000L) {
+            fixture.state.completeLoadMorePrepared(
+                candles = listOf(candle(50L), candle(0L)),
+                hasMoreOlder = false,
+            )
+        }
+
+        assertEquals(KlineDataDisposition.IgnoredStalePreparedData, result.disposition)
+        assertEquals(3, fixture.state.state.value.series.size)
+        assertEquals(null, fixture.state.state.value.loadMoreRequestId)
+        assertFalse(fixture.state.state.value.loadingState.isLoadMore)
+        assertEquals(3, calculationAttempts.get())
+        assertTrue(fixture.state.requestLoadMore())
         fixture.close()
     }
 
