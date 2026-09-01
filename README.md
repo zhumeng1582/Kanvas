@@ -11,13 +11,15 @@ and extensible indicator and renderer plugins without requiring a WebView.
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-See [the Chinese architecture overview](ARCHITECTURE.zh-CN.md) for module
-boundaries and runtime data flow. For high-frequency feeds, see
+See [the architecture overview](ARCHITECTURE.md) for module boundaries and
+runtime data flow. For high-frequency feeds, see
 [realtime candles, indicator refresh, and range stability](docs/realtime-updates.md).
 The example indicator picker and parameter editor are described in
 [indicator selection and settings](docs/indicator-settings.md).
 Device performance gates and the custom main-chart renderer SPI are documented in
-[the Chinese performance guide](docs/PERFORMANCE.zh-CN.md).
+[the performance guide](docs/PERFORMANCE.md). Chinese versions are available for
+the [architecture](ARCHITECTURE.zh-CN.md) and [performance](docs/PERFORMANCE.zh-CN.md)
+guides.
 
 Download the installable [Kanvas example APK v0.1.0](docs/downloads/kanvas-example-0.1.0.apk).
 It is a debug build signed with an Android debug certificate for demonstration
@@ -58,11 +60,11 @@ The current usable slice includes:
   viewport math, LRU controller/cache, loading events, immutable indicator
   snapshots, and indicator active/retained lifecycle state.
 - `kanvas-compose`: Compose Canvas/chart APIs plus the Kotlin-native
-  indicator plugin SPI, renderers, stateful lifecycle runtime, and Android
-  MA/Volume example plugins.
+  indicator plugin SPI, renderers, stateful lifecycle runtime, Android
+  magnifier attachment, and MA/Volume example plugins.
 - `kanvas-drawing`: persistent timestamp/value overlays, tool SPI,
-  drawing/editing state machine, magnet modes, draggable toolbar and Android
-  magnifier integration.
+  drawing/editing state machine, magnet modes, draggable toolbar, and magnifier
+  configuration.
 - `example`: an interactive BTC-USDT fixture with Android-example MA and
   Volume plugins, hide/show controls, light/dark themes, red-up/green-up color
   conventions, pan/scale, crosshair, and load-more events.
@@ -81,6 +83,33 @@ dependencies {
     implementation(project(":kanvas-compose"))
 }
 ```
+
+This repository does not currently declare a generally available remote Maven
+coordinate. Until a release announcement adds one, consume the source project
+as above or publish the development version to the workspace repository:
+
+```bash
+./gradlew publishAllPublicationsToWorkspaceRepository
+```
+
+```kotlin
+repositories {
+    google()
+    mavenCentral()
+    maven { url = uri("/path/to/Kanvas/build/maven-repository") }
+}
+
+dependencies {
+    implementation("com.zhumeng:kanvas-compose:0.1.0")
+}
+```
+
+`0.1.0` is the current development version, not a promise that the same
+coordinate is available from Maven Central. Its build baseline is:
+
+| Kanvas | Status | Android | Java | Kotlin | Compose BOM |
+| --- | --- | --- | --- | --- | --- |
+| `0.1.0` | Source/workspace Maven | minSdk 24, compileSdk 36 | 17 | 2.2.20 | 2026.02.01 |
 
 Run the bundled example:
 
@@ -139,6 +168,10 @@ chartState.moveTo(timestampMillis)
 `KanvasChart(state = KlineUiState, ...)`, `KlineController`, registry, and
 renderer arguments remain available as the advanced API for integrations that
 need to own every runtime boundary explicitly.
+
+`KlineCandle` requires timestamp and OHLCV values. `turnover`, `tradeCount`, and
+`exactValues` are nullable; `confirmed` defaults to `true`. All timestamps use
+milliseconds.
 
 ## Theme and chart style
 
@@ -353,18 +386,41 @@ visible range are not painted.
 
 ## Drawing and persistence
 
-Create a `DrawingController`, pass it to the chart, and start a built-in tool
-from app UI:
+The standard state creates a drawing controller automatically. To restore and
+persist overlays, create one with a host-owned `DrawingOverlayStore` and inject
+the same instance into `rememberKanvasChartState`:
 
 ```kotlin
-val drawing = chartState.drawingController
+val drawingController = remember {
+    DrawingController(
+        store = DrawingOverlayStore { symbol, overlays ->
+            drawingRepository.enqueueSave(symbol, overlays)
+        },
+    )
+}
+val chartState = rememberKanvasChartState(
+    drawingController = drawingController,
+)
+
+LaunchedEffect(spec.symbol) {
+    drawingController.switchSymbol(
+        symbol = spec.symbol,
+        restored = drawingRepository.load(spec.symbol),
+    )
+}
 
 KanvasChart(state = chartState)
 
-Button(onClick = { drawing.prepare(DrawingTypeDescriptor.TwoPointLine) }) {
+Button(onClick = { drawingController.prepare(DrawingTypeDescriptor.TwoPointLine) }) {
     Text("Draw line")
 }
 ```
+
+`DrawingOverlayStore.save` is invoked from drawing mutations, so it must return
+quickly. Copy or enqueue the immutable overlay list and perform Room, DataStore,
+or file I/O outside the UI path. Call `switchSymbol` once when entering each
+symbol session; it persists the previous symbol, filters and restores the new
+symbol, and resets undo/redo history.
 
 Built-ins include segment, ray, infinite straight line, horizontal line,
 vertical line, rectangle, and Fibonacci retracement. Their picker order is
@@ -680,3 +736,13 @@ Portal OSSRH Staging API and read `MAVEN_CENTRAL_USERNAME`,
 equivalent Gradle properties). The signing key is loaded in memory; release
 secrets are not required for local builds. Portal deployment finalization is a
 release-operator step after the signed upload.
+
+The device suite is currently verified on a dedicated Android 16 / API 36 ARM64
+emulator with AndroidX Test Runner 1.7.0 and Espresso 3.7.0. `minSdk 24` is the
+library support floor, not a claim that every API/device combination runs in
+each local check. Use a clean AVD without permission dialogs or unrelated apps
+stealing the foreground.
+
+See [versioning and migration](docs/migration.md), the
+[release checklist](docs/releasing.md), and [CHANGELOG](CHANGELOG.md) before
+publishing a version.

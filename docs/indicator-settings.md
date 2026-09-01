@@ -23,8 +23,10 @@ nor EMA until configured.
 | StochRSI | RSI `14`, stochastic `14`, K `3`, D `3` | K and D outputs |
 
 Most calculators support incremental replacement of the latest candle.
-StochRSI currently performs a full recalculation to keep Wilder RSI and rolling
-windows consistent. For 300ms quotes,
+StochRSI also patches its latest RSI, stochastic, K, and D values when the
+series length is unchanged, only the newest candle differs, and compatible
+previous calculation state is available. It falls back to a full calculation
+when those conditions are not met. For 300ms quotes,
 `KlineIndicatorRefreshPolicy.OnCandleBoundary` keeps indicator geometry stable
 until the next candle begins.
 

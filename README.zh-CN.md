@@ -53,9 +53,9 @@ Kanvas 是使用 Kotlin 和 Jetpack Compose 构建的 Android 原生 K 线图、
 - `kanvas-core`：严格按最新数据在前排列的 K 线序列、显式数据更新、右边界视口计算、LRU
   控制器/缓存、加载事件、不可变指标快照，以及指标激活/保留生命周期状态。
 - `kanvas-compose`：Compose Canvas/图表 API，以及 Kotlin 原生指标插件
-  SPI、渲染器、有状态生命周期运行时和 Android MA/成交量示例插件。
+  SPI、渲染器、有状态生命周期运行时、Android 放大镜挂载和 MA/成交量示例插件。
 - `kanvas-drawing`：基于时间戳/数值的持久化覆盖物、绘图工具 SPI、绘制/编辑状态机、
-  磁吸模式、可拖动工具栏和 Android 放大镜集成。
+  磁吸模式、可拖动工具栏和放大镜配置。
 - `example`：使用 BTC-USDT 固定数据的交互示例，包含 Android 示例 MA 和成交量插件、
   显示/隐藏控制、深浅主题、红涨/绿涨配色切换、平移/缩放、十字光标和加载更多事件。
 
@@ -72,6 +72,31 @@ dependencies {
     implementation(project(":kanvas-compose"))
 }
 ```
+
+当前仓库尚未声明可供外部直接使用的远程 Maven 坐标。在发布公告给出正式坐标前，请使用上述
+源码工程依赖，或先将开发版本发布到工作区 Maven 仓库：
+
+```bash
+./gradlew publishAllPublicationsToWorkspaceRepository
+```
+
+```kotlin
+repositories {
+    google()
+    mavenCentral()
+    maven { url = uri("/path/to/Kanvas/build/maven-repository") }
+}
+
+dependencies {
+    implementation("com.zhumeng:kanvas-compose:0.1.0")
+}
+```
+
+`0.1.0` 是当前开发版本，不代表同一坐标已经可以从 Maven Central 下载。当前构建基线如下：
+
+| Kanvas | 状态 | Android | Java | Kotlin | Compose BOM |
+| --- | --- | --- | --- | --- | --- |
+| `0.1.0` | 源码/工作区 Maven | minSdk 24、compileSdk 36 | 17 | 2.2.20 | 2026.02.01 |
 
 运行仓库自带示例：
 
@@ -128,8 +153,8 @@ chartState.moveTo(timestampMillis)
 `KanvasChart`、`KlineController`、Registry 和 Renderer 参数继续作为高级 API 保留，
 需要完全掌控运行时边界的项目仍可直接使用。
 
-`KlineCandle` 至少需要时间戳和 OHLC；`volume`、`turnover` 与 `confirmed` 可按数据源填充。
-所有时间戳均使用毫秒。
+`KlineCandle` 必须提供时间戳和 OHLCV；`turnover`、`tradeCount`、`exactValues` 可为空，
+`confirmed` 默认为 `true`。所有时间戳均使用毫秒。
 
 ## 主题与图表样式
 
@@ -378,17 +403,38 @@ KanvasChart(
 
 ## 绘图与持久化
 
-创建 `DrawingController`，将它传给图表，然后从应用 UI 启动内置工具：
+标准状态会自动创建绘图控制器。需要恢复和持久化图形时，应创建带宿主
+`DrawingOverlayStore` 的控制器，并将同一个实例注入 `rememberKanvasChartState`：
 
 ```kotlin
-val drawing = chartState.drawingController
+val drawingController = remember {
+    DrawingController(
+        store = DrawingOverlayStore { symbol, overlays ->
+            drawingRepository.enqueueSave(symbol, overlays)
+        },
+    )
+}
+val chartState = rememberKanvasChartState(
+    drawingController = drawingController,
+)
+
+LaunchedEffect(spec.symbol) {
+    drawingController.switchSymbol(
+        symbol = spec.symbol,
+        restored = drawingRepository.load(spec.symbol),
+    )
+}
 
 KanvasChart(state = chartState)
 
-Button(onClick = { drawing.prepare(DrawingTypeDescriptor.TwoPointLine) }) {
+Button(onClick = { drawingController.prepare(DrawingTypeDescriptor.TwoPointLine) }) {
     Text("Draw line")
 }
 ```
+
+绘图变更会在 UI 路径调用 `DrawingOverlayStore.save`，因此回调必须快速返回。应复制或入队不可变
+图形列表，再在 UI 路径外执行 Room、DataStore 或文件 I/O。每次进入新的交易对会话时调用一次
+`switchSymbol`；它会保存旧交易对、过滤并恢复新交易对图形，同时重置撤销/重做历史。
 
 内置工具包括线段、射线、无限直线、水平线、垂直线、矩形和斐波那契回撤，顺序列表可从
 `DrawingTypeDescriptor.BuiltIns` 获取。`DrawingController` 还提供 `undo()`、`redo()`、
@@ -679,3 +725,10 @@ Gradle 元数据、POM、源码和 Dokka 生成的 Javadoc 发布到 `build/mave
 `MAVEN_CENTRAL_USERNAME`、`MAVEN_CENTRAL_PASSWORD`、`SIGNING_KEY` 和
 `SIGNING_PASSWORD`（或对应的 Gradle 属性）。签名密钥只加载到内存中；本地构建不需要
 release 密钥。完成签名上传后，Portal 部署的最终确认由发布操作人员执行。
+
+当前设备测试已在专用 Android 16 / API 36 ARM64 模拟器、AndroidX Test Runner 1.7.0 和
+Espresso 3.7.0 上验证。`minSdk 24` 是库支持下限，不代表每次本地检查覆盖全部 API/设备组合。
+设备测试应使用没有权限弹窗、也没有其他应用抢占前台的干净 AVD。
+
+正式发布前请同时检查[版本与迁移说明](docs/migration.zh-CN.md)、[发布清单](docs/releasing.zh-CN.md)和
+[CHANGELOG](CHANGELOG.md)。

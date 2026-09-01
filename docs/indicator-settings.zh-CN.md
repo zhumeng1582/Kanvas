@@ -23,8 +23,9 @@ Example 参数编辑器的初始预设如下。这些预设不等同于插件构
 | WR | 周期 `14` | 输出范围 `-100..0` |
 | StochRSI | RSI `14`，随机周期 `14`，K `3`，D `3` | 输出 K、D 两条线 |
 
-多数计算器支持仅覆盖最新一根 K 线的增量更新；StochRSI 为保证 Wilder RSI 与滚动窗口一致，
-当前采用全量重算。实时价格更新时推荐使用 `KlineIndicatorRefreshPolicy.OnCandleBoundary`，
+多数计算器支持仅覆盖最新一根 K 线的增量更新。StochRSI 在序列长度不变、只有最新一根不同且
+存在兼容的上次计算状态时，也会增量替换 RSI、随机值、K 和 D 的最新结果；条件不满足时回退
+全量计算。实时价格更新时推荐使用 `KlineIndicatorRefreshPolicy.OnCandleBoundary`，
 只更新蜡烛和价格；新 K 线形成时再提交指标结果，避免指标线随 300ms 行情抖动。
 
 ## 配置更新

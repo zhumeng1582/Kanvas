@@ -6,8 +6,9 @@ intentional and form part of the public platform contract.
 ## Rendering
 
 - Canvas dimensions are resolved from logical units at the Compose boundary.
-- The Android magnifier controls size, zoom, margins, clipping, and border
-  projection; platform support determines the final system rendering.
+- Drawing owns magnifier configuration; `kanvas-compose` applies Android
+  `Modifier.magnifier` at the chart boundary. Platform support determines final
+  system rendering.
 - Indicator calculations can use `BigDecimal` with `DECIMAL128`, while final
   Canvas samples are represented as `Double`.
 
@@ -22,3 +23,6 @@ intentional and form part of the public platform contract.
 - Maven publications include source and Dokka Javadoc artifacts.
 - Central publishing and in-memory PGP signing are credential-driven; local
   builds do not require release secrets.
+- No generally available remote coordinate is declared yet. Source and
+  workspace-Maven consumption remain the supported installation paths until a
+  release announcement says otherwise.

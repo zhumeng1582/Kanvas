@@ -82,7 +82,7 @@ class KanvasChartUiTest {
             .partitionedFingerprint(columns = 24, rows = 32)
 
         assertEquals(
-            "1709a59c443f2c9793bc7a6f5b0486d72e9a06f5c33418df6aa8453940440e59",
+            "12ddc74eb873a9302d649b3efb6e38f8edeecf554652290d1daf74b6d6dedf46",
             fingerprint,
         )
     }

@@ -172,10 +172,11 @@ sequenceDiagram
 - 创建、选择、编辑和删除状态机。
 - 端点拖动、整体移动和磁吸。
 - `DrawingController` 及其可观察快照。
-- Compose 工具栏和 Android 放大镜集成。
+- Compose 工具栏和 Android 放大镜配置。
 
 宿主通过可选的 `drawingController` 将绘图状态传给 `KanvasChart`；不需要绘图时可不接入该
-控制器。
+控制器。`kanvas-compose` 在图表边界读取 `DrawingMagnifierConfig`，并负责实际挂载 Android
+`Modifier.magnifier`；平台集成不属于 `kanvas-drawing` 的职责。
 
 ## 主题与涨跌色
 

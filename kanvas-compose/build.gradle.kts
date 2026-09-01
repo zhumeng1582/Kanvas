@@ -13,6 +13,10 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    testOptions {
+        targetSdk = 36
+    }
+
     buildFeatures {
         compose = true
         buildConfig = false
@@ -47,6 +51,10 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.02.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    // Compose UI Test still brings Espresso 3.5.0 transitively. Espresso 3.7.0
+    // uses Context.getSystemService instead of the removed InputManager.getInstance
+    // reflection path, which keeps instrumentation startup compatible with API 36.
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
