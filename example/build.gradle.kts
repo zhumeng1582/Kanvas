@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val exampleVersionName = project.version.toString()
+
 android {
     namespace = "com.zhumeng.kanvas.example"
     compileSdk = 36
@@ -13,7 +15,8 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = exampleVersionName
+        resValue("string", "app_version_name", exampleVersionName)
     }
 
     buildTypes {

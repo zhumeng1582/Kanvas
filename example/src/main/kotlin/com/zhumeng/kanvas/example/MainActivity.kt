@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
@@ -364,7 +365,7 @@ private fun ReferenceSample(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "Kanvas Reference",
+                text = "Kanvas Reference · v${stringResource(R.string.app_version_name)}",
                 color = colorScheme.onBackground,
                 style = MaterialTheme.typography.titleMedium,
             )
