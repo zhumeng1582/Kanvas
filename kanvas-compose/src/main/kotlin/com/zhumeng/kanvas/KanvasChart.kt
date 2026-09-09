@@ -1859,14 +1859,12 @@ fun KanvasChart(
     ) {
         derivedStateOf {
             val raw = crosshairState.value ?: return@derivedStateOf null
-            val current = currentChartState()
             val geometry = interactionDrawGeometryRef.observedValue
-                ?.takeIf { cached -> cached.state === current }
                 ?: return@derivedStateOf raw
             val plotRect = geometry.layout.mainPane.plotRect
             val crosshair = resolveKlineIndicatorCrosshairContext(
                 inputPosition = raw,
-                state = current,
+                state = geometry.state,
                 plotRect = plotRect,
                 renderConfig = currentRenderConfig.value.crosshair,
                 crosshairRightPx = plotRect.right,
@@ -1899,9 +1897,7 @@ fun KanvasChart(
         derivedStateOf {
             if (!independentCrossNodesEnabled) return@derivedStateOf null
             val raw = crosshairState.value ?: return@derivedStateOf null
-            val current = currentChartState()
             val geometry = interactionDrawGeometryRef.observedValue
-                ?.takeIf { cached -> cached.state === current }
                 ?: return@derivedStateOf null
             val plotRect = geometry.layout.mainPane.plotRect
             val rawY = raw.y.coerceIn(plotRect.top, plotRect.bottom)
@@ -5105,9 +5101,10 @@ fun KanvasChart(
         }
         if (!appliedPaneConfig.drawBelowTipsArea) {
             Canvas(Modifier.fillMaxSize().layoutId("chart-interaction")) {
-                val interactionState = liveChartState?.value ?: state
-                val geometry = interactionDrawGeometryRef.value
-                    ?.takeIf { cached -> cached.state === interactionState }
+                // Follow the last drawn chart frame. A newer viewport can arrive
+                // before the content Canvas records it; comparing live state here
+                // would clear the Tips/tooltip display list during continuous pan.
+                val geometry = interactionDrawGeometryRef.observedValue
                     ?: return@Canvas
                 traceKlineSection("Kanvas.interaction.draw") {
                     drawInteractionLayer(
