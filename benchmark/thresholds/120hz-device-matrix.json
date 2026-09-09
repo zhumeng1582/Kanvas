@@ -4,6 +4,7 @@
     "strict-120hz": {
       "refreshRateHz": 120,
       "dataSetCandles": 100000,
+      "minimumIterations": 8,
       "requiredScenarios": ["pan", "pinch", "cross"],
       "thresholds": {
         "frameDurationCpuMsP95": 8.33,

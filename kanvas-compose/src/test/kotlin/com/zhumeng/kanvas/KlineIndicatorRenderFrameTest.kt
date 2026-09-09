@@ -23,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class KlineIndicatorRenderFrameTest {
@@ -218,12 +219,117 @@ class KlineIndicatorRenderFrameTest {
         val column = IndicatorColumn.of("value", values)
 
         assertEquals(
-            listOf(
-                IndexRange(0, 9),
-                IndexRange(8, 10),
-                IndexRange(11, 20),
-            ),
+            listOf(IndexRange(0, 9), IndexRange(8, 10), IndexRange(11, 20)),
             resolveKlineIndicatorPathRanges(column, IndexRange(0, values.size)),
+        )
+    }
+
+    @Test
+    fun `long pinch paths retain shared endpoints and do not bridge gaps`() {
+        val values = List(140) { index -> if (index == 70) Double.NaN else index.toDouble() }
+        val column = IndicatorColumn.of("value", values)
+
+        assertEquals(
+            listOf(
+                IndexRange(0, 65),
+                IndexRange(64, 70),
+                IndexRange(71, 136),
+                IndexRange(135, 140),
+            ),
+            resolveKlineIndicatorPathRanges(column, IndexRange(0, values.size), maxSegmentsPerPath = 64),
+        )
+    }
+
+    @Test
+    fun `main history can translate while untranslatable panes reject horizontal movement`() {
+        val recorded = historyFrame()
+        val panned = recorded.copy(context = recorded.context.copy(
+            viewport = recorded.context.viewport.copy(rightEdgeOffsetPx = 3.5f),
+        ))
+
+        assertTrue(listOf(panned).shareHistoricalInputsWith(listOf(recorded), allowHorizontalTranslation = true))
+        assertFalse(listOf(panned).shareHistoricalInputsWith(listOf(recorded)))
+    }
+
+    @Test
+    fun `translated history rejects scale range style and output changes`() {
+        val recorded = historyFrame()
+        val changedOutput = IndicatorOutput.of(
+            recorded.item.definition.key,
+            3,
+            listOf(IndicatorColumn.of("volume", listOf(1.0, 99.0, 3.0))),
+        )
+        val changed = listOf(
+            recorded.copy(context = recorded.context.copy(
+                viewport = recorded.context.viewport.copy(candleWidthPx = 10f),
+            )),
+            recorded.copy(context = recorded.context.copy(valueRange = KlineValueRange(0.0, 20.0))),
+            recorded.copy(context = recorded.context.copy(paintRange = IndexRange(1, 2))),
+            recorded.copy(context = recorded.context.copy(colorIndex = 1)),
+            recorded.copy(
+                item = recorded.item.copy(output = changedOutput),
+                context = recorded.context.copy(output = changedOutput),
+            ),
+        )
+
+        changed.forEach { frame ->
+            assertFalse(listOf(frame).shareHistoricalInputsWith(listOf(recorded), allowHorizontalTranslation = true))
+        }
+    }
+
+    @Test
+    fun `main history pipeline skips unused combined paths while alone and sub panes prepare theirs`() {
+        fun computed(id: String, placement: IndicatorPlacement, mode: IndicatorPaintMode) =
+            item(id, placement, order = 0, paintMode = mode).let {
+                it.copy(
+                    renderer = KlineComputedLineIndicatorRenderer,
+                    output = IndicatorOutput.empty(it.definition.key, 0),
+                )
+            }
+        val combined = computed("combined", IndicatorPlacement.Main, IndicatorPaintMode.COMBINE)
+        val alone = computed("alone", IndicatorPlacement.Main, IndicatorPaintMode.ALONE)
+        val sub = computed("sub", IndicatorPlacement.Sub("first"), IndicatorPaintMode.COMBINE)
+        val plan = KlineIndicatorPanePlan(
+            mainPaintOrder = listOf(combined, alone),
+            subByPane = linkedMapOf("first" to listOf(sub)),
+            subPaneLayoutHints = linkedMapOf("first" to listOf(IndicatorLayoutHint())),
+            unsupportedDefinitions = emptyList(),
+        )
+        fun frames(prepareMain: Boolean) = resolveKlineIndicatorRenderFrames(
+            state = KlineUiState(),
+            layout = layout(),
+            indicatorPanePlan = plan,
+            paintRange = IndexRange.Empty,
+            mainValueRange = KlineValueRange(0.0, 10.0),
+            style = KlineChartStyle(),
+            densityScale = 1f,
+            hideMainIndicators = false,
+            prepareMainCombineLines = prepareMain,
+        )
+
+        val deferred = frames(prepareMain = false)
+        assertNull(deferred.main[0].preparedLines)
+        assertEquals(emptyList(), deferred.main[1].preparedLines)
+        assertEquals(emptyList(), deferred.subByPane.getValue("first").single().preparedLines)
+        assertEquals(emptyList(), frames(prepareMain = true).main[0].preparedLines)
+    }
+
+    private fun historyFrame(): KlineIndicatorRenderFrame {
+        val indicator = item("history", IndicatorPlacement.Main, order = 0, values = listOf(1.0, 2.0, 3.0))
+        return KlineIndicatorRenderFrame(
+            item = indicator,
+            context = KlineIndicatorDrawContext(
+                state = KlineUiState(),
+                definition = indicator.definition,
+                output = indicator.output,
+                pane = layout().mainPane,
+                paintRange = IndexRange(1, 3),
+                valueRange = KlineValueRange(0.0, 10.0),
+                viewport = KlineViewport(),
+                style = KlineChartStyle(),
+                colorIndex = 0,
+                densityScale = 1f,
+            ),
         )
     }
 

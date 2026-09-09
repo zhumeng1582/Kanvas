@@ -1151,19 +1151,52 @@ internal data class KlinePreparedIndicatorLine(
     val widthPx: Float,
 )
 
-/** Keeps each HWUI path mask small enough to remain reusable across interaction frames. */
+/** Small reusable masks for stationary and translated curves. */
 internal const val KlineIndicatorSegmentsPerPath = 8
+internal const val KlinePinchIndicatorSegmentsPerPath = 64
+
+/** Fewer transient masks during scale changes; stationary curves keep the small-path cache. */
+internal fun prepareKlineMainIndicatorFramesForPinch(
+    frames: List<KlineIndicatorRenderFrame>,
+): List<KlineIndicatorRenderFrame> = frames.map { frame ->
+    val context = frame.context
+    val output = context.output
+    if (output == null || frame.preparedLines != null ||
+        frame.item.renderer.builtInComputedLineRendererOrNull() == null ||
+        context.definition.paintMode != com.zhumeng.kanvas.core.IndicatorPaintMode.COMBINE
+    ) {
+        frame
+    } else {
+        frame.copy(
+            preparedLines = prepareIndicatorLines(
+                outputs = listOf(output),
+                range = context.paintRange,
+                plotRect = context.pane.plotRect,
+                values = context.valueRange,
+                viewport = context.viewport,
+                style = context.style,
+                colorOffset = context.colorIndex,
+                lineStyles = context.definition.configuredLineStyles(),
+                excludedColumns = context.definition.excludedLineColumns(),
+                maxSegmentsPerPath = KlinePinchIndicatorSegmentsPerPath,
+            ),
+            preparedLineTranslationX = 0f,
+        )
+    }
+}
 
 internal fun resolveKlineIndicatorPathRanges(
     column: IndicatorColumn,
     range: IndexRange,
+    maxSegmentsPerPath: Int = KlineIndicatorSegmentsPerPath,
 ): List<IndexRange> = buildList {
+    require(maxSegmentsPerPath > 0)
     fun appendRun(startInclusive: Int, endExclusive: Int) {
         var chunkStart = startInclusive
         while (chunkStart + 1 < endExclusive) {
             val chunkEnd = min(
                 endExclusive,
-                chunkStart + KlineIndicatorSegmentsPerPath + 1,
+                chunkStart + maxSegmentsPerPath + 1,
             )
             add(IndexRange(chunkStart, chunkEnd))
             chunkStart = chunkEnd - 1
@@ -1191,6 +1224,7 @@ internal fun prepareIndicatorLines(
     colorOffset: Int = 0,
     lineStyles: List<KlineIndicatorLineStyle> = emptyList(),
     excludedColumns: Set<String> = emptySet(),
+    maxSegmentsPerPath: Int = KlineIndicatorSegmentsPerPath,
 ): List<KlinePreparedIndicatorLine> {
     if (outputs.isEmpty() || range.isEmpty) return emptyList()
     var colorIndex = colorOffset
@@ -1206,7 +1240,7 @@ internal fun prepareIndicatorLines(
                 }
                 val color = configuredStyle?.color ?: indicatorColors[colorIndex % indicatorColors.size]
                 val widthPx = configuredStyle?.widthPx ?: 1.25f
-                resolveKlineIndicatorPathRanges(column, range).forEach { pathRange ->
+                resolveKlineIndicatorPathRanges(column, range, maxSegmentsPerPath).forEach { pathRange ->
                     val path = Path()
                     for (index in pathRange.startInclusive until pathRange.endExclusive) {
                         val x = viewport.xForIndex(plotRect.right, index.toDouble()) -
@@ -1407,6 +1441,7 @@ internal fun resolveKlineIndicatorRenderFrames(
     subPaneRangeResetKey: Any? = null,
     subPaneRangeTransition: KlineValueRangeTransition? = null,
     prepareComputedLines: Boolean = true,
+    prepareMainCombineLines: Boolean = true,
     includeSubPanes: Boolean = true,
     baseRangeCache: KlineIndicatorBaseRangeCache? = null,
     preparedLineCache: KlinePreparedIndicatorLineCache? = null,
@@ -1419,6 +1454,7 @@ internal fun resolveKlineIndicatorRenderFrames(
         item: KlineIndicatorRenderItem,
         pane: KlinePaneLayout,
         valueRange: KlineValueRange,
+        prepareLines: Boolean = prepareComputedLines,
     ): KlineIndicatorRenderFrame {
         val context = KlineIndicatorDrawContext(
             state = state,
@@ -1433,7 +1469,7 @@ internal fun resolveKlineIndicatorRenderFrames(
             densityScale = densityScale,
         )
         val preparedGeometry = if (
-            prepareComputedLines && item.renderer.builtInComputedLineRendererOrNull() != null
+            prepareLines && item.renderer.builtInComputedLineRendererOrNull() != null
         ) {
             item.output?.let { output ->
                 val producer = {
@@ -1476,7 +1512,14 @@ internal fun resolveKlineIndicatorRenderFrames(
             when (item.definition.paintMode) {
                 com.zhumeng.kanvas.core.IndicatorPaintMode.COMBINE ->
                     layout.mainPane.takeIf(KlinePaneLayout::isDrawable)
-                        ?.let { pane -> frame(item, pane, mainValueRange) }
+                        ?.let { pane ->
+                            frame(
+                                item,
+                                pane,
+                                mainValueRange,
+                                prepareLines = prepareComputedLines && prepareMainCombineLines,
+                            )
+                        }
                 com.zhumeng.kanvas.core.IndicatorPaintMode.ALONE -> {
                     val pane = resolveMainAlonePane(layout.mainPane, item, densityScale)
                     if (!pane.isDrawable()) return@mapNotNull null
@@ -2345,6 +2388,25 @@ internal fun DrawScope.drawKlineTextAreaBackground(
     val drawsBorder = config.borderWidthPx > 0f && borderColor != null
     if (backgroundColor == null && !drawsBorder) return
     val radius = config.borderRadius
+    if (radius.topLeft == radius.topRight &&
+        radius.topLeft == radius.bottomRight &&
+        radius.topLeft == radius.bottomLeft
+    ) {
+        val corner = CornerRadius(logicalPx(radius.topLeft.xPx), logicalPx(radius.topLeft.yPx))
+        backgroundColor?.let {
+            drawRoundRect(it, rect.topLeft, rect.size, corner)
+        }
+        if (drawsBorder) {
+            drawRoundRect(
+                color = checkNotNull(borderColor),
+                topLeft = rect.topLeft,
+                size = rect.size,
+                cornerRadius = corner,
+                style = Stroke(width = logicalPx(config.borderWidthPx)),
+            )
+        }
+        return
+    }
     val roundRect = RoundRect(
         rect = rect,
         topLeft = CornerRadius(logicalPx(radius.topLeft.xPx), logicalPx(radius.topLeft.yPx)),
@@ -3113,9 +3175,40 @@ internal fun Offset.toKlineCrosshair(
 
 private class KlinePriceFormatterCache {
     private val formatters = arrayOfNulls<DecimalFormat>(13)
+    private val buffer = StringBuilder(32)
+    private val factors = LongArray(13).apply {
+        this[0] = 1L
+        for (index in 1 until size) this[index] = this[index - 1] * 10L
+    }
 
     fun format(value: Double, precision: Int): String {
         val clampedPrecision = precision.coerceIn(0, 12)
+        val factor = factors[clampedPrecision]
+        val scaled = kotlin.math.abs(value) * factor
+        if (scaled < 4_503_599_627_370_496.0) {
+            val whole = scaled.toLong()
+            val fraction = scaled - whole
+            // Multiplication can move a value across a rounding boundary.
+            // Delegate ambiguous ties to the platform formatter, including
+            // its treatment of the original Double's decimal representation.
+            if (kotlin.math.abs(fraction - 0.5) > Math.ulp(scaled)) {
+                val rounded = whole + if (fraction > 0.5) 1L else 0L
+                buffer.setLength(0)
+                if (value.toRawBits() < 0L) buffer.append('-')
+                buffer.append(rounded / factor)
+                if (clampedPrecision > 0) {
+                    buffer.append('.')
+                    var remainder = rounded % factor
+                    var divisor = factor / 10L
+                    repeat(clampedPrecision) {
+                        buffer.append(('0'.code + (remainder / divisor).toInt()).toChar())
+                        remainder %= divisor
+                        divisor /= 10L
+                    }
+                }
+                return buffer.toString()
+            }
+        }
         val formatter = formatters[clampedPrecision] ?: DecimalFormat(
             buildString {
                 append('0')

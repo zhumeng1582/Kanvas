@@ -28,6 +28,25 @@ import com.zhumeng.kanvas.core.KlineViewport
 import com.zhumeng.kanvas.core.Volume
 import com.zhumeng.kanvas.core.Macd
 import com.zhumeng.kanvas.core.SuperTrend
+import java.util.Formatter
+import java.util.Locale
+
+private class KlineTopTipFormatter {
+    private val buffer = StringBuilder()
+    private val formatter = Formatter(buffer, Locale.US)
+
+    fun format(value: Double): String {
+        buffer.setLength(0)
+        return formatter.format("%.2f", value).toString()
+    }
+}
+
+private val klineTopTipFormatter = object : ThreadLocal<KlineTopTipFormatter>() {
+    override fun initialValue(): KlineTopTipFormatter = KlineTopTipFormatter()
+}
+
+internal fun formatKlineTopTipValue(value: Double): String =
+    checkNotNull(klineTopTipFormatter.get()).format(value)
 
 /**
  * Renderer SPI for native Kotlin indicators.
@@ -581,7 +600,7 @@ object KlineComputedLineIndicatorRenderer :
                     ?: fallbackColors[(context.indicator.colorIndex + columnIndex) % fallbackColors.size]
                 add(
                     KlineComputedTopTip(
-                        text = "$displayName: ${"%.2f".format(java.util.Locale.US, value)}",
+                        text = "$displayName: ${formatKlineTopTipValue(value)}",
                         color = color,
                     ),
                 )

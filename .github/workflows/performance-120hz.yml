@@ -40,7 +40,7 @@ jobs:
           test "$(adb devices | awk 'NR>1 && $2 == "device" { count++ } END { print count+0 }')" -eq 1
           adb shell settings put system peak_refresh_rate 120.0
           adb shell settings put system min_refresh_rate 120.0
-          adb shell dumpsys display | grep -E 'mActiveRenderFrameRate|refreshRate|supportedModes' | grep -E '120(\.0+)?'
+          adb shell dumpsys display | grep -E 'mActiveRenderFrameRate=120(\.[0-9]+)?([[:space:]]|$)'
       - name: Run 100k interaction Macrobenchmarks
         run: >-
           ./gradlew :benchmark:connectedBenchmarkAndroidTest
@@ -48,7 +48,7 @@ jobs:
       - name: Enforce strict P95/P99 and Overrun gates
         run: >-
           python3 tools/check_macrobenchmark_thresholds.py
-          --results benchmark/build/outputs/androidTest-results/connected/benchmark
+          --results benchmark/build/outputs/connected_android_test_additional_output/benchmark
           --profile strict-120hz
       - uses: actions/upload-artifact@v6
         if: always()

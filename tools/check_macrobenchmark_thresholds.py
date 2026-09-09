@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from dataclasses import dataclass
@@ -36,6 +37,7 @@ class FrameResult:
     cpu_p99: float
     overrun_p95: float
     overrun_p99: float
+    iterations: int = 0
 
 
 def number(value: str) -> float:
@@ -59,17 +61,43 @@ def parse_text(text: str) -> dict[str, FrameResult]:
     return parsed
 
 
+def parse_json(text: str) -> dict[str, FrameResult]:
+    parsed: dict[str, FrameResult] = {}
+    for benchmark in json.loads(text)["benchmarks"]:
+        scenario = SCENARIOS.get(benchmark["name"])
+        if scenario is None:
+            continue
+        metrics = benchmark["sampledMetrics"]
+        cpu = metrics["frameDurationCpuMs"]
+        overrun = metrics["frameOverrunMs"]
+        values = [
+            float(metric[percentile])
+            for metric in (cpu, overrun)
+            for percentile in ("P95", "P99")
+        ]
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError(f"Non-finite frame metrics for {scenario}")
+        parsed[scenario] = FrameResult(*values, iterations=int(benchmark.get("repeatIterations", 0)))
+    return parsed
+
+
 def result_files(path: Path) -> list[Path]:
     if path.is_file():
         return [path]
-    candidates = list(path.rglob("test-result.textproto")) + list(path.rglob("TEST-*.xml"))
+    # The Studio summary rounds to one decimal place: 8.34ms becomes 8.3ms,
+    # which would incorrectly pass the 8.33ms gate. Prefer raw JSON exclusively
+    # when available; do not fill missing scenarios from older text summaries.
+    candidates = list(path.rglob("*-benchmarkData.json"))
+    if not candidates:
+        candidates = list(path.rglob("test-result.textproto")) + list(path.rglob("TEST-*.xml"))
     return sorted(candidates, key=lambda candidate: candidate.stat().st_mtime)
 
 
 def load_results(path: Path) -> dict[str, FrameResult]:
     results: dict[str, FrameResult] = {}
     for candidate in result_files(path):
-        results.update(parse_text(candidate.read_text(encoding="utf-8", errors="replace")))
+        text = candidate.read_text(encoding="utf-8", errors="replace")
+        results.update(parse_json(text) if candidate.suffix == ".json" else parse_text(text))
     return results
 
 
@@ -90,10 +118,25 @@ def main() -> int:
     except KeyError as error:
         raise SystemExit(f"Unknown threshold profile: {args.profile}") from error
     limits = profile["thresholds"]
+    if any(path.suffix != ".json" for path in result_files(args.results)):
+        print(
+            "Strict acceptance requires raw *-benchmarkData.json; rounded text summaries "
+            "cannot certify the frame-time boundary.",
+            file=sys.stderr,
+        )
+        return 2
     results = load_results(args.results)
     missing = [name for name in profile["requiredScenarios"] if name not in results]
     if missing:
         print(f"Missing Macrobenchmark scenarios: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    minimum_iterations = profile.get("minimumIterations", 8)
+    insufficient = [name for name, result in results.items() if result.iterations < minimum_iterations]
+    if insufficient:
+        print(
+            f"At least {minimum_iterations} iterations required: {', '.join(insufficient)}",
+            file=sys.stderr,
+        )
         return 2
 
     checks = (

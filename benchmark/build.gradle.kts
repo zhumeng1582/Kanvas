@@ -16,11 +16,18 @@ android {
     targetProjectPath = ":example"
     experimentalProperties["android.experimental.self-instrumenting"] = true
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     buildTypes {
         create("benchmark") {
             isDebuggable = true
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
+        }
+        create("baselineProfile") {
+            initWith(getByName("benchmark"))
         }
     }
 
@@ -42,6 +49,6 @@ dependencies {
 
 androidComponents {
     beforeVariants(selector().all()) { variant ->
-        variant.enable = variant.buildType == "benchmark"
+        variant.enable = variant.buildType in setOf("benchmark", "baselineProfile")
     }
 }

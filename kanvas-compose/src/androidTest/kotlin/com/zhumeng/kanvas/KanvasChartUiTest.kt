@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
@@ -39,6 +41,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(AndroidJUnit4::class)
 class KanvasChartUiTest {
@@ -103,6 +106,118 @@ class KanvasChartUiTest {
         }
         compose.waitForIdle()
         assertTrue(sawCross)
+    }
+
+    @Test
+    fun crossTooltipRemainsVisibleAfterLatestCandleUpdate() {
+        var chartState by mutableStateOf(fixtureState())
+        compose.setContent {
+            KanvasChart(
+                state = chartState,
+                onViewportChange = {},
+                style = KlineChartStyle(tooltipBackground = Color.Magenta),
+                renderConfig = KlineChartRenderConfig(autoStartLastPriceCountdownTimer = false),
+                modifier = Modifier.size(360.dp, 480.dp),
+            )
+        }
+        fun tooltipVisible(): Boolean {
+            val pixels = compose.onRoot().captureToImage().toPixelMap()
+            for (y in 0 until pixels.height) {
+                for (x in 0 until pixels.width) {
+                    if (pixels[x, y] == Color.Magenta) return true
+                }
+            }
+            return false
+        }
+        compose.onRoot().performTouchInput { longClick(Offset(centerX, centerY)) }
+        compose.waitForIdle()
+        assertTrue("Tooltip was not drawn", tooltipVisible())
+        compose.runOnIdle {
+            val candles = chartState.series.candles.toMutableList()
+            candles[0] = candles[0].copy(close = candles[0].close + 0.1)
+            chartState = chartState.copy(series = KlineSeries.of(candles))
+        }
+        compose.waitForIdle()
+        assertTrue("Tooltip disappeared after a live update", tooltipVisible())
+    }
+
+    @Test
+    fun latestCandleUpdateDoesNotScheduleAnotherMainDraw() {
+        val draws = AtomicInteger()
+        var chartState by mutableStateOf(fixtureState())
+        val renderer = object : KlineMainChartRenderer {
+            override fun drawChart(scope: DrawScope, context: KlineMainChartDrawContext) {
+                draws.incrementAndGet()
+                scope.drawRect(Color.Red)
+            }
+        }
+        compose.setContent {
+            KanvasChart(
+                state = chartState,
+                onViewportChange = {},
+                mainChartRenderer = renderer,
+                renderConfig = KlineChartRenderConfig(autoStartLastPriceCountdownTimer = false),
+                modifier = Modifier.size(360.dp, 480.dp),
+            )
+        }
+        compose.waitForIdle()
+        val before = draws.get()
+        compose.runOnIdle {
+            val candles = chartState.series.candles.toMutableList()
+            candles[0] = candles[0].copy(close = candles[0].close + 0.1)
+            chartState = chartState.copy(series = KlineSeries.of(candles))
+        }
+        compose.waitForIdle()
+        assertEquals("Publishing draw geometry scheduled an extra frame", before + 1, draws.get())
+    }
+
+    @Test
+    fun crossMovementDoesNotRedrawMainContentButRendererStateStillDoes() {
+        val draws = AtomicInteger()
+        var color by mutableStateOf(Color.Red)
+        var crossCount = 0
+        val renderer = object : KlineMainChartRenderer {
+            override fun drawChart(scope: DrawScope, context: KlineMainChartDrawContext) {
+                draws.incrementAndGet()
+                scope.drawRect(color)
+            }
+        }
+        compose.setContent {
+            KanvasChart(
+                state = fixtureState(),
+                onViewportChange = {},
+                mainChartRenderer = renderer,
+                onCrosshairChange = { if (it != null) crossCount++ },
+                renderConfig = KlineChartRenderConfig(autoStartLastPriceCountdownTimer = false),
+                modifier = Modifier.size(360.dp, 480.dp),
+            )
+        }
+        // Keep one pointer session alive: a fresh drag dismisses a persistent
+        // Cross, whereas a held long press owns subsequent MOVE events.
+        compose.onRoot().performTouchInput { down(Offset(centerX, centerY)) }
+        compose.mainClock.advanceTimeBy(700L)
+        compose.waitForIdle()
+        val settledDraws = draws.get()
+        val settledCrossCount = crossCount
+        compose.onRoot().performTouchInput {
+            advanceEventTime(700L)
+            moveTo(Offset(centerX + 30f, centerY + 20f), delayMillis = 16L)
+        }
+        compose.waitForIdle()
+        // The new gesture can initialize range state. Observe only its MOVE.
+        val heldDraws = draws.get()
+        compose.onRoot().performTouchInput {
+            moveTo(Offset(centerX + 60f, centerY + 40f), delayMillis = 16L)
+        }
+        compose.waitForIdle()
+        assertTrue("Cross did not receive the drag", crossCount > settledCrossCount)
+        assertTrue("Main renderer was never drawn", settledDraws > 0)
+        assertEquals("Cross MOVE re-recorded main content", heldDraws, draws.get())
+
+        compose.runOnIdle { color = Color.Blue }
+        compose.waitForIdle()
+        assertTrue("Dynamic renderer stopped observing its state", draws.get() > heldDraws)
+        compose.onRoot().performTouchInput { up() }
     }
 
     @Test
@@ -212,6 +327,69 @@ class KanvasChartUiTest {
 
         assertFalse(crosshairVisible)
         assertTrue("pinch did not update the viewport", viewportChangeCount > 0)
+    }
+
+    @Test
+    fun pinchKeepsMovingAverageVisibleAndRestoresStationaryRendering() {
+        val initial = fixtureState()
+        var chartState by mutableStateOf(initial)
+        var chartLayout: KlineLayout? = null
+        var sawCross = false
+        val snapshot = com.zhumeng.kanvas.core.IndicatorRuntime().calculate(
+            series = initial.series,
+            definitions = listOf(
+                com.zhumeng.kanvas.core.IndicatorDefinition(
+                    key = com.zhumeng.kanvas.core.IndicatorKey.computed("ma"),
+                    calculator = com.zhumeng.kanvas.core.MovingAverage(listOf(7)),
+                ),
+            ),
+        )
+        compose.setContent {
+            KanvasChart(
+                state = chartState,
+                onViewportChange = { chartState = chartState.copy(viewport = it) },
+                onLayoutChange = { chartLayout = it },
+                onCrosshairChange = { sawCross = it != null },
+                indicatorSnapshot = snapshot,
+                style = KlineChartStyle(indicatorLines = listOf(Color.Magenta)),
+                renderConfig = KlineChartRenderConfig(autoStartLastPriceCountdownTimer = false),
+                modifier = Modifier.size(360.dp, 480.dp),
+            )
+        }
+        fun curveMask(): Set<Pair<Int, Int>> {
+            val pixels = compose.onRoot().captureToImage().toPixelMap()
+            val plot = checkNotNull(chartLayout).mainPane.plotRect
+            return buildSet {
+                for (y in (plot.top.toInt() + 64) until (plot.bottom.toInt() - 16)) {
+                    for (x in plot.left.toInt() until plot.right.toInt()) {
+                        if (pixels[x, y] == Color.Magenta) add(x to y)
+                    }
+                }
+            }
+        }
+        val originalCurve = curveMask()
+        assertTrue("Initial MA is missing", originalCurve.size > 20)
+        compose.onRoot().performTouchInput {
+            down(0, Offset(centerX - 40f, centerY))
+            down(1, Offset(centerX + 40f, centerY))
+            updatePointerTo(0, Offset(centerX - 70f, centerY))
+            updatePointerTo(1, Offset(centerX + 70f, centerY))
+            move()
+        }
+        compose.waitForIdle()
+        assertTrue("MA disappeared during pinch", curveMask().size > 20)
+        compose.onRoot().performTouchInput {
+            up(1)
+            up(0)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { chartState = initial }
+        compose.waitForIdle()
+        assertEquals("Stationary MA rendering was not restored", originalCurve, curveMask())
+        compose.onRoot().performTouchInput { longClick(Offset(centerX, centerY)) }
+        compose.waitForIdle()
+        assertTrue("Cross did not resume after pinch", sawCross)
+        assertTrue("MA disappeared under Cross", curveMask().size > 20)
     }
 
     @Test

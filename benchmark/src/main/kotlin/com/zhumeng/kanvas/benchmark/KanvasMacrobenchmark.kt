@@ -25,11 +25,18 @@ import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 @OptIn(ExperimentalMetricApi::class)
 class KanvasMacrobenchmark {
+    @Before
+    fun requireBenchmarkBuild() {
+        assumeTrue("Measure the optimized benchmark variant", BuildConfig.BUILD_TYPE == "benchmark")
+    }
+
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
@@ -104,7 +111,9 @@ class KanvasMacrobenchmark {
             MemoryUsageMetric(MemoryUsageMetric.Mode.Max),
         ),
         compilationMode = CompilationMode.Partial(),
-        iterations = InteractionIterations,
+        iterations = InstrumentationRegistry.getArguments()
+            .getString("kanvas.benchmark.iterations")?.toInt()?.also { require(it > 0) }
+            ?: InteractionIterations,
         setupBlock = {
             startActivityAndWait(launchIntent(candleCount = 100_000))
             checkNotNull(device.wait(Until.findObject(By.desc(ChartDescription)), UiTimeoutMillis))

@@ -21,12 +21,20 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
         create("benchmark") {
             initWith(getByName("release"))
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
+        }
+        create("baselineProfile") {
+            initWith(getByName("benchmark"))
+            // Library profile rules must retain the source method signatures.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 

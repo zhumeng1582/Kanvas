@@ -19,11 +19,18 @@ import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.runner.RunWith
 
 /** Generates startup and hot chart-gesture profile rules for the example integration target. */
 @RunWith(AndroidJUnit4::class)
 class KanvasBaselineProfileGenerator {
+    @Before
+    fun requireProfileBuild() {
+        assumeTrue("Generate library rules with the baselineProfile variant", BuildConfig.BUILD_TYPE == "baselineProfile")
+    }
+
     @get:Rule
     val baselineProfileRule = BaselineProfileRule()
 

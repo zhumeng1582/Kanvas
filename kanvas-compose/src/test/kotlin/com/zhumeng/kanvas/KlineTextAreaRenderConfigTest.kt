@@ -84,4 +84,46 @@ class KlineTextAreaRenderConfigTest {
         assertEquals("-0.00", formatPrice(-0.0, 2))
         assertEquals("2", formatPrice(1.6, 0))
     }
+
+    @Test
+    fun `price formatter matches platform rounding at boundaries and across magnitudes`() {
+        val random = java.util.Random(120L)
+        for (precision in 0..12) {
+            val reference = java.text.DecimalFormat(
+                if (precision == 0) "0" else "0." + "0".repeat(precision),
+                java.text.DecimalFormatSymbols.getInstance(java.util.Locale.US),
+            ).apply { roundingMode = java.math.RoundingMode.HALF_UP }
+            val factor = Math.pow(10.0, precision.toDouble())
+            val values = buildList {
+                addAll(listOf(0.0, -0.0, 1.005, 2.675, Double.MIN_VALUE, Double.MAX_VALUE))
+                repeat(2_000) {
+                    add(Math.scalb(random.nextDouble() - 0.5, random.nextInt(120) - 60))
+                    val tie = (random.nextInt(1_000_000) + 0.5) / factor
+                    add(Math.nextDown(tie))
+                    add(tie)
+                    add(Math.nextUp(tie))
+                }
+            }
+            for (value in values) {
+                for (signed in listOf(value, -value)) {
+                    assertEquals(reference.format(signed), formatPrice(signed, precision), "$signed / $precision")
+                }
+            }
+        }
+        assertEquals(formatPrice(1.234, 0), formatPrice(1.234, -1))
+        assertEquals(formatPrice(1.234, 12), formatPrice(1.234, 13))
+    }
+
+    @Test
+    fun `reused top tip formatter preserves rounding and clears previous text`() {
+        val values = listOf(123456789.0, 2.675, -2.675, 1.005, -0.0, 0.0, 1e20, 0.1)
+        repeat(2) {
+            values.forEach { value ->
+                assertEquals(
+                    String.format(java.util.Locale.US, "%.2f", value),
+                    formatKlineTopTipValue(value),
+                )
+            }
+        }
+    }
 }

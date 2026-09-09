@@ -536,15 +536,17 @@ private data class KlineHistoricalMainBodyLayerKey(
     val hideMainIndicators: Boolean,
     val precision: Int,
     val textMeasurer: TextMeasurer,
+    val indicatorPathSegments: Int,
 ) {
     fun canReuseRecordedHistory(recorded: KlineHistoricalMainBodyLayerKey): Boolean =
         copy(series = recorded.series, frames = recorded.frames) == recorded &&
             (series === recorded.series || series.differsOnlyAtLatestFrom(recorded.series)) &&
-            frames.shareHistoricalInputsWith(recorded.frames)
+            frames.shareHistoricalInputsWith(recorded.frames, allowHorizontalTranslation = true)
 }
 
-private fun List<KlineIndicatorRenderFrame>.shareHistoricalInputsWith(
+internal fun List<KlineIndicatorRenderFrame>.shareHistoricalInputsWith(
     recorded: List<KlineIndicatorRenderFrame>,
+    allowHorizontalTranslation: Boolean = false,
 ): Boolean {
     if (size != recorded.size) return false
     return indices.all { index ->
@@ -559,6 +561,15 @@ private fun List<KlineIndicatorRenderFrame>.shareHistoricalInputsWith(
             currentFrame.context.copy(
                 state = recordedFrame.context.state,
                 output = recordedFrame.context.output,
+                // The main history node applies pan as a layer translation.
+                // Keep scale, pane and range checks; only its X offset is free.
+                viewport = if (allowHorizontalTranslation) {
+                    currentFrame.context.viewport.copy(
+                        rightEdgeOffsetPx = recordedFrame.context.viewport.rightEdgeOffsetPx,
+                    )
+                } else {
+                    currentFrame.context.viewport
+                },
             ) == recordedFrame.context &&
             when {
                 currentItem.output === recordedItem.output -> true
@@ -924,6 +935,7 @@ private class KlineIndicatorRenderFramesCache(
         val subPaneRangeResetKey: Any?,
         val subPaneRangeTransition: KlineValueRangeTransition?,
         val prepareComputedLines: Boolean,
+        val prepareMainCombineLines: Boolean,
         val includeSubPanes: Boolean,
         val value: KlineIndicatorRenderFrames,
     )
@@ -944,6 +956,7 @@ private class KlineIndicatorRenderFramesCache(
         subPaneRangeResetKey: Any?,
         subPaneRangeTransition: KlineValueRangeTransition?,
         prepareComputedLines: Boolean = true,
+        prepareMainCombineLines: Boolean = true,
         includeSubPanes: Boolean = true,
     ): KlineIndicatorRenderFrames {
         if (entries.isNotEmpty() && entries.first().state !== state) entries.clear()
@@ -961,6 +974,7 @@ private class KlineIndicatorRenderFramesCache(
                 entry.subPaneRangeResetKey == subPaneRangeResetKey &&
                 entry.subPaneRangeTransition == subPaneRangeTransition &&
                 entry.prepareComputedLines == prepareComputedLines &&
+                entry.prepareMainCombineLines == prepareMainCombineLines &&
                 entry.includeSubPanes == includeSubPanes
         }?.let { return it.value }
         val value = resolveKlineIndicatorRenderFrames(
@@ -977,6 +991,7 @@ private class KlineIndicatorRenderFramesCache(
             subPaneRangeResetKey = subPaneRangeResetKey,
             subPaneRangeTransition = subPaneRangeTransition,
             prepareComputedLines = prepareComputedLines,
+            prepareMainCombineLines = prepareMainCombineLines,
             includeSubPanes = includeSubPanes,
             baseRangeCache = baseRangeCache,
             preparedLineCache = preparedLineCache,
@@ -996,6 +1011,7 @@ private class KlineIndicatorRenderFramesCache(
             subPaneRangeResetKey = subPaneRangeResetKey,
             subPaneRangeTransition = subPaneRangeTransition,
             prepareComputedLines = prepareComputedLines,
+            prepareMainCombineLines = prepareMainCombineLines,
             includeSubPanes = includeSubPanes,
             value = value,
         )
@@ -1072,6 +1088,7 @@ private class KlineInteractionDrawGeometryRef {
     var value: KlineInteractionDrawGeometry? = null
 
     private val version = mutableLongStateOf(0L)
+    private var nextVersion = 0L
 
     val observedValue: KlineInteractionDrawGeometry?
         get() {
@@ -1089,14 +1106,16 @@ private class KlineInteractionDrawGeometryRef {
             previous.valueRange != next.valueRange ||
             previous.indicatorFrames !== next.indicatorFrames
         ) {
-            version.longValue++
+            // Reading this snapshot counter here would subscribe the content
+            // Canvas to its own publication and schedule a redundant draw.
+            version.longValue = ++nextVersion
         }
     }
 
     fun clear() {
         if (value == null) return
         value = null
-        version.longValue++
+        version.longValue = ++nextVersion
     }
 }
 
@@ -1580,6 +1599,7 @@ fun KanvasChart(
     // Canvas draw phase. Pointer movement then invalidates drawing without
     // recomposing this large chart function on every pixel.
     val crosshairState = remember { mutableStateOf<Offset?>(null) }
+    val pinchRenderActive = remember { mutableStateOf(false) }
     val crosshairSessionRef = remember { CrosshairSessionRef() }
     var isChartZooming by remember { mutableStateOf(false) }
     var verticalZoomInsetPx by remember { mutableFloatStateOf(0f) }
@@ -2929,6 +2949,7 @@ fun KanvasChart(
                                     // visibly uneven two-finger gesture.
                                     if (crosshairSessionRef.value != null) updateCrosshair(null)
                                     owner = PointerGestureOwner.Pinch
+                                    pinchRenderActive.value = currentRenderConfig.value.gesture.enableScale
                                     if (currentRenderConfig.value.gesture.enableScale) isChartZooming = true
                                 }
                                 if (owner == PointerGestureOwner.CrossDrag) {
@@ -3075,6 +3096,7 @@ fun KanvasChart(
                             }
                         } finally {
                             pointerActive = false
+                            pinchRenderActive.value = false
                             viewportCommitJob?.cancel()
                             viewportCommitJob = null
                             // Preserve the exact final gesture position. MOVE events are
@@ -3323,36 +3345,40 @@ fun KanvasChart(
             }
 
         fun drawMainTopTips(selection: KlineIndicatorTopTipsSelection) {
-            drawKlineIndicatorTopTipsRenderPlan(
-                plan = builtInTopTipsPlanCache.resolve(
-                    frames = indicatorFrames.main,
+            traceKlineSection("Kanvas.tips.main.draw") {
+                drawKlineIndicatorTopTipsRenderPlan(
+                    plan = builtInTopTipsPlanCache.resolve(
+                        frames = indicatorFrames.main,
+                        chartLayout = layout,
+                        selection = selection,
+                        textMeasurer = textMeasurer,
+                        stackMainTips = true,
+                    ),
                     chartLayout = layout,
                     selection = selection,
                     textMeasurer = textMeasurer,
-                    stackMainTips = true,
-                ),
-                chartLayout = layout,
-                selection = selection,
-                textMeasurer = textMeasurer,
-            )
+                )
+            }
         }
 
         fun drawSubTopTips(
             paneId: String,
             selection: KlineIndicatorTopTipsSelection,
         ) {
-            drawKlineIndicatorTopTipsRenderPlan(
-                plan = builtInTopTipsPlanCache.resolve(
-                    frames = indicatorFrames.subByPane[paneId].orEmpty(),
+            traceKlineSection("Kanvas.tips.sub.draw") {
+                drawKlineIndicatorTopTipsRenderPlan(
+                    plan = builtInTopTipsPlanCache.resolve(
+                        frames = indicatorFrames.subByPane[paneId].orEmpty(),
+                        chartLayout = layout,
+                        selection = selection,
+                        textMeasurer = textMeasurer,
+                        stackMainTips = false,
+                    ),
                     chartLayout = layout,
                     selection = selection,
                     textMeasurer = textMeasurer,
-                    stackMainTips = false,
-                ),
-                chartLayout = layout,
-                selection = selection,
-                textMeasurer = textMeasurer,
-            )
+                )
+            }
         }
 
         if (activeNativeCrosshair == null) {
@@ -3367,18 +3393,20 @@ fun KanvasChart(
         if (!mainTipsAlreadyDrawn) {
             drawMainTopTips(KlineIndicatorTopTipsSelection.Cross(activeNativeCrosshair))
         }
-        val crossTooltipPresentation = resolveCachedCrossTooltipPresentation(
-            crosshair = activeNativeCrosshair,
-            state = interactionState,
-            plotRect = plotRect,
-            anchorRect = layout.mainPane.outerRect,
-            config = renderConfig.crosshair,
-            style = appliedStyle,
-            densityScale = densityScale,
-            timeLabelFormatter = appliedTimeLabelFormatter,
-            provider = crossTooltipProvider,
-            stableContentWidthPx = crossTooltipStableContentWidthRef.value,
-        )
+        val crossTooltipPresentation = traceKlineSection("Kanvas.cross.tooltip.resolve") {
+            resolveCachedCrossTooltipPresentation(
+                crosshair = activeNativeCrosshair,
+                state = interactionState,
+                plotRect = plotRect,
+                anchorRect = layout.mainPane.outerRect,
+                config = renderConfig.crosshair,
+                style = appliedStyle,
+                densityScale = densityScale,
+                timeLabelFormatter = appliedTimeLabelFormatter,
+                provider = crossTooltipProvider,
+                stableContentWidthPx = crossTooltipStableContentWidthRef.value,
+            )
+        }
         val crossConfig = renderConfig.crosshair
         val effectiveRight = layout.mainPane.plotRect.right.coerceIn(plotRect.left, plotRect.right)
         val crossPosition = activeNativeCrosshair.position
@@ -3694,7 +3722,31 @@ fun KanvasChart(
                 mainBackgroundContent(slotContext)
             }
         }
-        Canvas(Modifier.fillMaxSize().layoutId("chart-canvas")) {
+        // Canvas siblings otherwise share their ancestor's display list.
+        // Give price content its own recording boundary so Cross-only draws
+        // cannot re-execute this entire pipeline.
+        val canRasterizeCrossBackground = mainChartRenderer == null &&
+            !appliedPaneConfig.drawBelowTipsArea &&
+            (indicatorPanePlan.mainPaintOrder.asSequence() +
+                indicatorPanePlan.subByPane.values.asSequence().flatten()).all { item ->
+                item.renderer.builtInComputedLineRendererOrNull() != null ||
+                    item.renderer.builtInVolumeRendererOrNull() != null
+            }
+        Canvas(
+            Modifier.fillMaxSize().layoutId("chart-canvas").graphicsLayer {
+                // While Cross moves, reuse a raster of the stationary native
+                // chart. Pan and pinch keep vector replay to avoid scaling a
+                // cached bitmap or repainting an offscreen target every frame.
+                compositingStrategy = if (
+                    canRasterizeCrossBackground && crosshairState.value != null &&
+                    drawingController?.snapshot?.overlays.orEmpty().isEmpty()
+                ) {
+                    CompositingStrategy.Offscreen
+                } else {
+                    CompositingStrategy.Auto
+                }
+            },
+        ) {
             // High-level controller viewport emissions are read in DrawScope,
             // so gesture frames invalidate Canvas without recomposing the
             // complete chart function.
@@ -3784,6 +3836,7 @@ fun KanvasChart(
                     // line Paths. Prepare the drawable geometry only after the
                     // final inset layout is known.
                     prepareComputedLines = !needsMainTipsPreflight,
+                    prepareMainCombineLines = mainChartRenderer != null,
                     includeSubPanes = !needsMainTipsPreflight,
                 )
             }
@@ -3847,6 +3900,7 @@ fun KanvasChart(
                         subPaneRangeResetKey = state.spec?.key,
                         subPaneRangeTransition = historicalRangeTransition,
                         prepareComputedLines = true,
+                        prepareMainCombineLines = mainChartRenderer != null,
                     )
                 }
             }
@@ -3907,7 +3961,9 @@ fun KanvasChart(
                         subPaneRangeSmoothers = null,
                         subPaneRangeResetKey = state.spec?.key,
                         subPaneRangeTransition = null,
-                        prepareComputedLines = true,
+                        // Built-in main lines are recorded with the history
+                        // and latest-patch ranges; full paths would be discarded.
+                        prepareComputedLines = false,
                         includeSubPanes = false,
                     )
                 }
@@ -3970,7 +4026,13 @@ fun KanvasChart(
             ) {
                 drawMainIndicatorFrames(
                     mainPane = layout.mainPane,
-                    frames = frames,
+                    frames = if (canUseBuiltInMainPipeline && pinchRenderActive.value) {
+                        traceKlineSection("Kanvas.indicator.pinch.paths") {
+                            prepareKlineMainIndicatorFramesForPinch(frames)
+                        }
+                    } else {
+                        frames
+                    },
                     style = appliedStyle,
                     grid = renderConfig.grid,
                     textMeasurer = textMeasurer,
@@ -4173,6 +4235,11 @@ fun KanvasChart(
                     hideMainIndicators = hideMainIndicators,
                     precision = precision,
                     textMeasurer = textMeasurer,
+                    indicatorPathSegments = if (pinchRenderActive.value) {
+                        KlinePinchIndicatorSegmentsPerPath
+                    } else {
+                        KlineIndicatorSegmentsPerPath
+                    },
                 )
                 var historicalTranslationX = historicalMainBodyLayerCache.translationFor(
                     key = historicalKey,
@@ -5100,7 +5167,7 @@ fun KanvasChart(
             }
         }
         if (!appliedPaneConfig.drawBelowTipsArea) {
-            Canvas(Modifier.fillMaxSize().layoutId("chart-interaction")) {
+            Canvas(Modifier.fillMaxSize().layoutId("chart-interaction").graphicsLayer()) {
                 // Follow the last drawn chart frame. A newer viewport can arrive
                 // before the content Canvas records it; comparing live state here
                 // would clear the Tips/tooltip display list during continuous pan.

@@ -20,6 +20,7 @@ import com.zhumeng.kanvas.drawing.DrawingController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.atomic.AtomicInteger
@@ -115,6 +116,14 @@ class KanvasChartStateTest {
             candles = listOf(candle(300L), candle(200L), candle(100L)),
         )
 
+        // Start pagination after the initial market/registry reconciliation.
+        // Its asynchronous spec notification otherwise races this assertion.
+        withTimeout(5_000L) {
+            fixture.state.indicators.calculationState.first { snapshot ->
+                snapshot?.matches(fixture.state.state.value, fixture.state.indicators.snapshot()) == true
+            }
+        }
+
         assertTrue(fixture.state.requestLoadMore())
         val result = fixture.state.completeLoadMorePrepared(
             candles = listOf(candle(50L), candle(0L)),
@@ -125,7 +134,12 @@ class KanvasChartStateTest {
         val chart = fixture.state.state.value
         val registry = fixture.state.indicators.snapshot()
         val indicators = checkNotNull(fixture.state.indicators.calculationState.value)
-        assertTrue(indicators.matches(chart, registry))
+        assertTrue(
+            indicators.matches(chart, registry),
+            "Chart revision=${chart.revision}, size=${chart.series.size}; " +
+                "indicator revision=${indicators.sourceRevision}, size=${indicators.series.size}; " +
+                "registry matches=${indicators.matches(registry)}",
+        )
         assertEquals(chart.series.size, indicators.output(plugin.key)?.seriesSize)
         fixture.close()
     }
