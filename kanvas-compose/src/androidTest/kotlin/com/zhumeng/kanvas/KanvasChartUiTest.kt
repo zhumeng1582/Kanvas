@@ -42,11 +42,79 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(AndroidJUnit4::class)
 class KanvasChartUiTest {
     @get:Rule
     val compose = createComposeRule()
+
+    @Test
+    fun historicalPageRangeAnimatesThroughIntermediateValuesToFreshTarget() {
+        val initial = fixtureState()
+        var chartState by mutableStateOf(initial)
+        val drawnRange = AtomicReference<KlineValueRange>()
+        val definition = com.zhumeng.kanvas.core.IndicatorDefinition(
+            key = com.zhumeng.kanvas.core.IndicatorKey.direct("page-range"),
+            placement = com.zhumeng.kanvas.core.IndicatorPlacement.Sub(),
+        )
+        val registry = com.zhumeng.kanvas.core.IndicatorRegistry().mount(
+            listOf(definition),
+            restoredActiveKeys = listOf(definition.key),
+        )
+        val renderer = object : KlineIndicatorRenderer {
+            override fun supports(
+                definition: com.zhumeng.kanvas.core.IndicatorDefinition,
+                output: com.zhumeng.kanvas.core.IndicatorOutput?,
+            ) = true
+
+            override fun visibleValueRange(context: KlineIndicatorRangeContext) =
+                KlineIndicatorValueRange(0.0, if (context.state.series.size > initial.series.size) 200.0 else 100.0)
+
+            override fun draw(scope: DrawScope, context: KlineIndicatorDrawContext) {
+                drawnRange.set(context.valueRange)
+                scope.drawRect(Color.Magenta, context.pane.plotRect.topLeft, context.pane.plotRect.size)
+            }
+        }
+        val renderers = KlineIndicatorRendererRegistry(listOf(renderer))
+        compose.setContent {
+            KanvasChart(
+                state = chartState,
+                onViewportChange = {},
+                indicatorRegistrySnapshot = registry,
+                indicatorRendererRegistry = renderers,
+                renderConfig = KlineChartRenderConfig(autoStartLastPriceCountdownTimer = false),
+                modifier = Modifier.size(360.dp, 480.dp),
+            )
+        }
+        compose.waitForIdle()
+        assertEquals(105.0, drawnRange.get().maximum, 0.0001)
+        compose.runOnIdle {
+            chartState = chartState.copy(loadingState = com.zhumeng.kanvas.core.KlineLoadingState.LoadMore)
+        }
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle {
+            chartState = chartState.copy(
+                series = initial.series.appendOlder(
+                    listOf(initial.series.oldest!!.copy(timestampMillis = initial.series.oldest!!.timestampMillis - 60_000)),
+                ).series,
+                loadingState = com.zhumeng.kanvas.core.KlineLoadingState.None,
+                revision = chartState.revision + 1,
+            )
+        }
+        compose.mainClock.advanceTimeBy(32)
+        compose.waitForIdle()
+        val start = drawnRange.get().maximum
+        compose.mainClock.advanceTimeBy(48)
+        compose.waitForIdle()
+        val middle = drawnRange.get().maximum
+        assertTrue("Range did not animate between the old and new target", middle > start && middle < 210.0)
+        compose.mainClock.advanceTimeBy(300)
+        compose.waitForIdle()
+        assertEquals(210.0, drawnRange.get().maximum, 0.0001)
+        compose.mainClock.autoAdvance = true
+    }
 
     @Test
     fun fixedFixtureProducesChartGoldenColorFamilies() {

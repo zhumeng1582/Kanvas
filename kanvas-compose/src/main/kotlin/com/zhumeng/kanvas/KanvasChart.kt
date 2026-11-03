@@ -834,16 +834,7 @@ private class KlineTimelineTranslatableRecordedLayerCache {
 private class KlineMainRenderRangeCache(
     private val capacity: Int = 4,
 ) {
-    private data class Entry(
-        val series: KlineSeries,
-        val panePlan: KlineIndicatorPanePlan,
-        val paintRange: IndexRange,
-        val hideMainIndicators: Boolean,
-        val includeMainIndicators: Boolean,
-        val rawRange: KlineRawValueRange?,
-    )
-
-    private val entries = ArrayList<Entry>(capacity)
+    private val rawRanges = KlineMainRawRangeCache(capacity)
 
     fun resolve(
         state: KlineUiState,
@@ -861,38 +852,11 @@ private class KlineMainRenderRangeCache(
         ) ?: return null
         val includeMainIndicators = !hideMainIndicators &&
             renderConfig.includeMainIndicatorsInValueRange
-        if (entries.isNotEmpty() &&
-            (entries.first().series !== state.series || entries.first().panePlan !== panePlan)
-        ) {
-            entries.clear()
-        }
-        val cachedEntry = entries.firstOrNull { entry ->
-            entry.series === state.series &&
-                entry.panePlan === panePlan &&
-                entry.paintRange == paintRange &&
-                entry.hideMainIndicators == hideMainIndicators &&
-                entry.includeMainIndicators == includeMainIndicators
-        }
-        val rawRange = if (cachedEntry != null) {
-            cachedEntry.rawRange
-        } else {
-            state.series.candles.rawValueRangeIncluding(
-                candleRange = paintRange,
-                mainOutputs = if (includeMainIndicators) panePlan.mainCombineOutputs else emptyList(),
-                paintRange = paintRange,
-                includeMainIndicators = includeMainIndicators,
-            ).also { calculated ->
-                if (entries.size == capacity) entries.removeAt(0)
-                entries += Entry(
-                    series = state.series,
-                    panePlan = panePlan,
-                    paintRange = paintRange,
-                    hideMainIndicators = hideMainIndicators,
-                    includeMainIndicators = includeMainIndicators,
-                    rawRange = calculated,
-                )
-            }
-        }
+        val rawRange = rawRanges.resolve(
+            series = state.series,
+            outputs = if (includeMainIndicators) panePlan.mainCombineOutputs else emptyList(),
+            range = paintRange,
+        )
         // Renderer-owned ranges retain exact viewport semantics. Only the
         // potentially expensive immutable Candle/output scan is cached.
         val rendererRanges = if (includeMainIndicators) {
@@ -1649,17 +1613,16 @@ fun KanvasChart(
             ),
         )
     }
-    val historicalRangeProgressValue = historicalRangeProgress?.value ?: 1f
-    val historicalRangeTransition = if (
-        historicalRangeTransitionKey != null && historicalRangeProgressValue < 1f
-    ) {
-        KlineValueRangeTransition(
-            key = historicalRangeTransitionKey,
-            progress = historicalRangeProgressValue,
-        )
-    } else {
-        null
+    // Read animation state only from drawing/pointer consumers. Reading it
+    // here in composition would recompose the chart on every animation frame.
+    val historicalRangeTransitionProvider = rememberUpdatedState<() -> KlineValueRangeTransition?> {
+        val progress = historicalRangeProgress?.value ?: 1f
+        historicalRangeTransitionKey?.takeIf { progress < 1f }?.let { key ->
+            KlineValueRangeTransition(key = key, progress = progress)
+        }
     }
+    fun currentHistoricalRangeTransition(): KlineValueRangeTransition? =
+        historicalRangeTransitionProvider.value()
     SideEffect {
         rangeUpdateRef.series = state.series
         rangeUpdateRef.viewport = state.viewport
@@ -1726,6 +1689,11 @@ fun KanvasChart(
     // Horizontal viewport changes do not affect indicator selection or pane
     // ownership. Retain the immutable plan across drag frames and rebuild it
     // only when its actual data/lifecycle inputs change.
+    // Explicit invalidation and spec changes must discard renderer-owned
+    // cache identities even if their declaration/output inputs are unchanged.
+    val indicatorPanePlanCache = remember(activeRendererResolver, lifecycleEpoch, state.spec) {
+        KlineIndicatorPanePlanCache()
+    }
     val indicatorPanePlan = remember(
         indicatorSnapshot,
         indicatorRegistrySnapshot,
@@ -1735,10 +1703,12 @@ fun KanvasChart(
         state.revision,
         state.spec,
     ) {
-        indicatorSnapshot.resolveIndicatorPanePlan(
-            state = state,
-            registry = indicatorRegistrySnapshot,
-            renderers = activeRendererResolver,
+        indicatorPanePlanCache.retain(
+            indicatorSnapshot.resolveIndicatorPanePlan(
+                state = state,
+                registry = indicatorRegistrySnapshot,
+                renderers = activeRendererResolver,
+            ),
         )
     }
     val currentIndicatorPanePlan = rememberUpdatedState(indicatorPanePlan)
@@ -2171,7 +2141,7 @@ fun KanvasChart(
             sameValueExpansionRatios = currentRenderConfig.value.sameValueRangeExpansionRatios,
             subPaneRangeSmoothers = subPaneRangeSmoothers,
             subPaneRangeResetKey = current.spec?.key,
-            subPaneRangeTransition = historicalRangeTransition,
+            subPaneRangeTransition = currentHistoricalRangeTransition(),
         )
     }
     /** Dispatches confirmed pointer taps before the Cross persistent-toggle route. */
@@ -3831,7 +3801,7 @@ fun KanvasChart(
                     sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
                     subPaneRangeSmoothers = subPaneRangeSmoothers,
                     subPaneRangeResetKey = state.spec?.key,
-                    subPaneRangeTransition = historicalRangeTransition,
+                    subPaneRangeTransition = currentHistoricalRangeTransition(),
                     // The preflight needs contexts for Top Tips measurement, not
                     // line Paths. Prepare the drawable geometry only after the
                     // final inset layout is known.
@@ -3898,7 +3868,7 @@ fun KanvasChart(
                         sameValueExpansionRatios = renderConfig.sameValueRangeExpansionRatios,
                         subPaneRangeSmoothers = subPaneRangeSmoothers,
                         subPaneRangeResetKey = state.spec?.key,
-                        subPaneRangeTransition = historicalRangeTransition,
+                        subPaneRangeTransition = currentHistoricalRangeTransition(),
                         prepareComputedLines = true,
                         prepareMainCombineLines = mainChartRenderer != null,
                     )
