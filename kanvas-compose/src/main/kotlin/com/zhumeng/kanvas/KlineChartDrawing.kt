@@ -1442,6 +1442,7 @@ internal fun resolveKlineIndicatorRenderFrames(
     subPaneRangeTransition: KlineValueRangeTransition? = null,
     prepareComputedLines: Boolean = true,
     prepareMainCombineLines: Boolean = true,
+    prepareSubLines: Boolean = true,
     includeSubPanes: Boolean = true,
     baseRangeCache: KlineIndicatorBaseRangeCache? = null,
     preparedLineCache: KlinePreparedIndicatorLineCache? = null,
@@ -1574,7 +1575,9 @@ internal fun resolveKlineIndicatorRenderFrames(
             resetKey = subPaneRangeResetKey,
             transition = subPaneRangeTransition,
         ) ?: targetValueRange
-        subByPane[pane.id] = items.map { item -> frame(item, pane, valueRange) }
+        subByPane[pane.id] = items.map { item ->
+            frame(item, pane, valueRange, prepareLines = prepareComputedLines && prepareSubLines)
+        }
     }
     return KlineIndicatorRenderFrames(main = main, subByPane = subByPane)
 }

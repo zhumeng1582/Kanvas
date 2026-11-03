@@ -900,6 +900,7 @@ private class KlineIndicatorRenderFramesCache(
         val subPaneRangeTransition: KlineValueRangeTransition?,
         val prepareComputedLines: Boolean,
         val prepareMainCombineLines: Boolean,
+        val prepareSubLines: Boolean,
         val includeSubPanes: Boolean,
         val value: KlineIndicatorRenderFrames,
     )
@@ -921,6 +922,7 @@ private class KlineIndicatorRenderFramesCache(
         subPaneRangeTransition: KlineValueRangeTransition?,
         prepareComputedLines: Boolean = true,
         prepareMainCombineLines: Boolean = true,
+        prepareSubLines: Boolean = true,
         includeSubPanes: Boolean = true,
     ): KlineIndicatorRenderFrames {
         if (entries.isNotEmpty() && entries.first().state !== state) entries.clear()
@@ -939,6 +941,7 @@ private class KlineIndicatorRenderFramesCache(
                 entry.subPaneRangeTransition == subPaneRangeTransition &&
                 entry.prepareComputedLines == prepareComputedLines &&
                 entry.prepareMainCombineLines == prepareMainCombineLines &&
+                entry.prepareSubLines == prepareSubLines &&
                 entry.includeSubPanes == includeSubPanes
         }?.let { return it.value }
         val value = resolveKlineIndicatorRenderFrames(
@@ -956,6 +959,7 @@ private class KlineIndicatorRenderFramesCache(
             subPaneRangeTransition = subPaneRangeTransition,
             prepareComputedLines = prepareComputedLines,
             prepareMainCombineLines = prepareMainCombineLines,
+            prepareSubLines = prepareSubLines,
             includeSubPanes = includeSubPanes,
             baseRangeCache = baseRangeCache,
             preparedLineCache = preparedLineCache,
@@ -976,6 +980,7 @@ private class KlineIndicatorRenderFramesCache(
             subPaneRangeTransition = subPaneRangeTransition,
             prepareComputedLines = prepareComputedLines,
             prepareMainCombineLines = prepareMainCombineLines,
+            prepareSubLines = prepareSubLines,
             includeSubPanes = includeSubPanes,
             value = value,
         )
@@ -1821,6 +1826,7 @@ fun KanvasChart(
     val currentReportedLayout = rememberUpdatedState(reportedLayout)
     val mainRenderRangeCache = remember { KlineMainRenderRangeCache() }
     val indicatorRenderFramesCache = remember { KlineIndicatorRenderFramesCache() }
+    val subRenderPlanCache = remember { KlineSubRenderPlanCache() }
     val translatableMainFramesCache = remember { KlineIndicatorRenderFramesCache() }
     val crossTooltipPresentationCache = remember { KlineCrossTooltipPresentationCache() }
     val interactionDrawGeometryRef = remember { KlineInteractionDrawGeometryRef() }
@@ -3807,6 +3813,7 @@ fun KanvasChart(
                     // final inset layout is known.
                     prepareComputedLines = !needsMainTipsPreflight,
                     prepareMainCombineLines = mainChartRenderer != null,
+                    prepareSubLines = false,
                     includeSubPanes = !needsMainTipsPreflight,
                 )
             }
@@ -3871,6 +3878,7 @@ fun KanvasChart(
                         subPaneRangeTransition = currentHistoricalRangeTransition(),
                         prepareComputedLines = true,
                         prepareMainCombineLines = mainChartRenderer != null,
+                        prepareSubLines = false,
                     )
                 }
             }
@@ -4579,50 +4587,11 @@ fun KanvasChart(
             if (!renderConfig.indicatorOverlay.allowOutsideMainRect) {
                 drawMainOverlayPhase()
             }
-            val builtInSubFramesByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
-            val cacheableCustomSubFramesByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
-            val dynamicSubFramesByPane = LinkedHashMap<String, List<KlineIndicatorRenderFrame>>()
-            indicatorFrames.subByPane.forEach { (paneId, frames) ->
-                frames.filter {
-                    it.item.renderer.builtInComputedLineRendererOrNull() != null ||
-                        it.item.renderer.builtInVolumeRendererOrNull() != null
-                }.takeIf(List<KlineIndicatorRenderFrame>::isNotEmpty)?.let { cacheable ->
-                    builtInSubFramesByPane[paneId] = cacheable
-                }
-                frames.filter {
-                    it.item.renderer.cachePolicy == KlineIndicatorCachePolicy.ImmutableInputs &&
-                        it.item.renderer.builtInComputedLineRendererOrNull() == null &&
-                        it.item.renderer.builtInVolumeRendererOrNull() == null
-                }.takeIf(List<KlineIndicatorRenderFrame>::isNotEmpty)?.let { cacheable ->
-                    cacheableCustomSubFramesByPane[paneId] = cacheable
-                }
-                frames.filter {
-                    it.item.renderer.cachePolicy == KlineIndicatorCachePolicy.Never
-                }.takeIf(List<KlineIndicatorRenderFrame>::isNotEmpty)?.let { dynamic ->
-                    dynamicSubFramesByPane[paneId] = dynamic
-                }
-            }
-            if (builtInSubFramesByPane.isNotEmpty()) {
-                val historicalSubFrames = builtInSubFramesByPane.mapValues { (_, frames) ->
-                    frames.map { frame ->
-                        val paintRange = frame.context.paintRange
-                        val historicalStart = min(
-                            paintRange.endExclusive,
-                            max(1, paintRange.startInclusive),
-                        )
-                        frame.copy(
-                            context = frame.context.copy(
-                                paintRange = if (historicalStart < paintRange.endExclusive) {
-                                    IndexRange(historicalStart, paintRange.endExclusive)
-                                } else {
-                                    IndexRange.Empty
-                                },
-                            ),
-                            preparedLines = null,
-                            preparedLineTranslationX = 0f,
-                        )
-                    }
-                }
+            val subRenderPlan = subRenderPlanCache.resolve(indicatorFrames.subByPane)
+            val cacheableCustomSubFramesByPane = subRenderPlan.custom
+            val dynamicSubFramesByPane = subRenderPlan.dynamic
+            if (subRenderPlan.history.isNotEmpty()) {
+                val historicalSubFrames = subRenderPlan.history
                 val cachedSubKey = KlineHistoricalSubIndicatorLayerKey(
                     series = state.series,
                     layout = layout,
@@ -4649,22 +4618,7 @@ fun KanvasChart(
                 }
                 drawLayer(cachedSubIndicatorLayer)
 
-                val patchSubFrames = builtInSubFramesByPane.mapValues { (_, frames) ->
-                    frames.map { frame ->
-                        val endExclusive = if (
-                            frame.item.renderer.builtInComputedLineRendererOrNull() != null
-                        ) {
-                            min(2, frame.context.state.series.size)
-                        } else {
-                            min(1, frame.context.state.series.size)
-                        }
-                        frame.copy(
-                            context = frame.context.copy(paintRange = IndexRange(0, endExclusive)),
-                            preparedLines = null,
-                            preparedLineTranslationX = 0f,
-                        )
-                    }
-                }
+                val patchSubFrames = subRenderPlan.patch
                 val patchSubKey = KlineCachedSubIndicatorLayerKey(
                     state = state,
                     layout = layout,

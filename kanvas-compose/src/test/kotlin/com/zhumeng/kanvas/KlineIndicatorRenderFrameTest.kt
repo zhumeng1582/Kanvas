@@ -295,7 +295,7 @@ class KlineIndicatorRenderFrameTest {
             subPaneLayoutHints = linkedMapOf("first" to listOf(IndicatorLayoutHint())),
             unsupportedDefinitions = emptyList(),
         )
-        fun frames(prepareMain: Boolean) = resolveKlineIndicatorRenderFrames(
+        fun frames(prepareMain: Boolean, prepareSub: Boolean = true) = resolveKlineIndicatorRenderFrames(
             state = KlineUiState(),
             layout = layout(),
             indicatorPanePlan = plan,
@@ -305,6 +305,7 @@ class KlineIndicatorRenderFrameTest {
             densityScale = 1f,
             hideMainIndicators = false,
             prepareMainCombineLines = prepareMain,
+            prepareSubLines = prepareSub,
         )
 
         val deferred = frames(prepareMain = false)
@@ -312,6 +313,43 @@ class KlineIndicatorRenderFrameTest {
         assertEquals(emptyList(), deferred.main[1].preparedLines)
         assertEquals(emptyList(), deferred.subByPane.getValue("first").single().preparedLines)
         assertEquals(emptyList(), frames(prepareMain = true).main[0].preparedLines)
+        val splitLayers = frames(prepareMain = false, prepareSub = false)
+        assertNull(splitLayers.subByPane.getValue("first").single().preparedLines)
+        assertEquals(emptyList(), splitLayers.main[1].preparedLines)
+        assertEquals(deferred.subByPane.getValue("first").single().context,
+            splitLayers.subByPane.getValue("first").single().context)
+
+    }
+
+    @Test
+    fun `sub render plan retains partitions and preserves line seam and custom frames`() {
+        val state = KlineUiState(series = com.zhumeng.kanvas.core.KlineSeries.of(List(3) { index ->
+            com.zhumeng.kanvas.core.KlineCandle((3 - index).toLong(), 1.0, 2.0, 0.0, 1.0, 1.0)
+        }))
+        val base = historyFrame()
+        val line = base.copy(
+            item = base.item.copy(renderer = KlineComputedLineIndicatorRenderer),
+            context = base.context.copy(state = state, paintRange = IndexRange(0, 3)),
+        )
+        val volume = line.copy(item = line.item.copy(renderer = KlineVolumeIndicatorRenderer))
+        val custom = base.copy(item = base.item.copy(renderer = object : KlineIndicatorRenderer by TestRenderer {
+            override val cachePolicy = KlineIndicatorCachePolicy.ImmutableInputs
+        }))
+        val source = linkedMapOf("first" to listOf(line, volume, custom, base))
+        val cache = KlineSubRenderPlanCache()
+        val plan = cache.resolve(source)
+        assertSame(plan, cache.resolve(source))
+        assertEquals(listOf(IndexRange(1, 3), IndexRange(1, 3)),
+            plan.history.getValue("first").map { it.context.paintRange })
+        assertEquals(listOf(IndexRange(0, 2), IndexRange(0, 1)),
+            plan.patch.getValue("first").map { it.context.paintRange })
+        assertSame(custom, plan.custom.getValue("first").single())
+        assertSame(base, plan.dynamic.getValue("first").single())
+        val moved = line.copy(context = line.context.copy(paintRange = IndexRange(2, 3)))
+        val next = cache.resolve(linkedMapOf("first" to listOf(moved)))
+        assertEquals(IndexRange(2, 3), next.history.getValue("first").single().context.paintRange)
+        assertTrue(next.custom.isEmpty())
+        assertTrue(cache.resolve(emptyMap()).history.isEmpty())
     }
 
     private fun historyFrame(): KlineIndicatorRenderFrame {

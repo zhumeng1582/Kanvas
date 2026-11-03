@@ -19,6 +19,16 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.zhumeng.kanvas.core.IndexRange
+import com.zhumeng.kanvas.core.IndicatorColumn
+import com.zhumeng.kanvas.core.IndicatorDefinition
+import com.zhumeng.kanvas.core.IndicatorKey
+import com.zhumeng.kanvas.core.IndicatorOutput
+import com.zhumeng.kanvas.core.IndicatorPlacement
+import com.zhumeng.kanvas.core.KlineCandle
+import com.zhumeng.kanvas.core.KlineSeries
+import com.zhumeng.kanvas.core.KlineUiState
+import com.zhumeng.kanvas.core.MovingAverage
 import java.math.RoundingMode
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
@@ -30,6 +40,63 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class KlineDrawingPrimitivesTest {
+    @Test
+    fun deferredSubLinesMatchPreparedPixels() {
+        val definition = IndicatorDefinition(
+            key = IndicatorKey.computed("deferred-line"),
+            placement = IndicatorPlacement.Sub("sub"),
+            calculator = MovingAverage(listOf(2)),
+        )
+        val samples = doubleArrayOf(3.0, 8.0, 2.0, 7.0, 5.0)
+        val output = IndicatorOutput.of(definition.key, samples.size,
+            listOf(IndicatorColumn.of("line", samples)))
+        val item = KlineIndicatorRenderItem(definition, output, KlineComputedLineIndicatorRenderer, 0)
+        val pane = KlinePaneLayout("sub", Rect(0f, 0f, 120f, 100f), Rect(0f, 0f, 120f, 100f), 100f, 100f)
+        val layout = KlineLayout(
+            canvasRect = pane.outerRect,
+            chartRect = pane.outerRect,
+            axisRect = Rect.Zero,
+            mainPane = pane,
+            subPanes = listOf(pane),
+            timePane = null,
+            paneOrder = listOf(pane),
+            dividerYPositions = emptyList(),
+            requiredHeightPx = 100f,
+            fitsAvailableSize = true,
+        )
+        val state = KlineUiState(series = KlineSeries.of(List(samples.size) { index ->
+            KlineCandle((samples.size - index).toLong(), 5.0, 10.0, 0.0, samples[index], 1.0)
+        }))
+        val plan = KlineIndicatorPanePlan(emptyList(), linkedMapOf("sub" to listOf(item)),
+            linkedMapOf("sub" to listOf(definition.layoutHint)), emptyList())
+        fun render(prepare: Boolean): ImageBitmap {
+            val frame = resolveKlineIndicatorRenderFrames(
+                state = state,
+                layout = layout,
+                indicatorPanePlan = plan,
+                paintRange = IndexRange(0, samples.size),
+                mainValueRange = KlineValueRange(0.0, 10.0),
+                style = KlineChartStyle(),
+                densityScale = 1f,
+                hideMainIndicators = false,
+                prepareSubLines = prepare,
+            ).subByPane.getValue("sub").single()
+            val bitmap = ImageBitmap(120, 100)
+            CanvasDrawScope().draw(Density(1f), LayoutDirection.Ltr, Canvas(bitmap), Size(120f, 100f)) {
+                KlineComputedLineIndicatorRenderer.draw(this, frame.context, frame.preparedLines)
+            }
+            return bitmap
+        }
+        val expected = render(true).toPixelMap()
+        val actual = render(false).toPixelMap()
+        var painted = 0
+        for (y in 0 until 100) for (x in 0 until 120) {
+            assertEquals("Pixel $x,$y", expected[x, y], actual[x, y])
+            if (actual[x, y].alpha > 0f) painted++
+        }
+        org.junit.Assert.assertTrue("Fixture must draw a visible curve", painted > 0)
+    }
+
     @Test
     fun priceFormattingMatchesAndroidDecimalFormat() {
         val random = Random(120L)

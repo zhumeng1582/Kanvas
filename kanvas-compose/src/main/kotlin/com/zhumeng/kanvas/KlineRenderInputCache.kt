@@ -76,3 +76,68 @@ internal class KlineIndicatorPanePlanCache {
         return plan
     }
 }
+
+internal data class KlineSubRenderPlan(
+    val history: Map<String, List<KlineIndicatorRenderFrame>>,
+    val patch: Map<String, List<KlineIndicatorRenderFrame>>,
+    val custom: Map<String, List<KlineIndicatorRenderFrame>>,
+    val dynamic: Map<String, List<KlineIndicatorRenderFrame>>,
+)
+
+/** Reuses partitioned contexts when a draw-only refresh retains the resolved frames. */
+internal class KlineSubRenderPlanCache {
+    private var source: Map<String, List<KlineIndicatorRenderFrame>>? = null
+    private var cached: KlineSubRenderPlan? = null
+
+    fun resolve(framesByPane: Map<String, List<KlineIndicatorRenderFrame>>): KlineSubRenderPlan {
+        if (source === framesByPane) return checkNotNull(cached)
+        val history = linkedMapOf<String, List<KlineIndicatorRenderFrame>>()
+        val patch = linkedMapOf<String, List<KlineIndicatorRenderFrame>>()
+        val custom = linkedMapOf<String, List<KlineIndicatorRenderFrame>>()
+        val dynamic = linkedMapOf<String, List<KlineIndicatorRenderFrame>>()
+        framesByPane.forEach { (paneId, frames) ->
+            val historicalFrames = mutableListOf<KlineIndicatorRenderFrame>()
+            val patchFrames = mutableListOf<KlineIndicatorRenderFrame>()
+            val customFrames = mutableListOf<KlineIndicatorRenderFrame>()
+            val dynamicFrames = mutableListOf<KlineIndicatorRenderFrame>()
+            frames.forEach { frame ->
+                val renderer = frame.item.renderer
+                val isLine = renderer.builtInComputedLineRendererOrNull() != null
+                if (isLine || renderer.builtInVolumeRendererOrNull() != null) {
+                    val range = frame.context.paintRange
+                    val start = maxOf(1, range.startInclusive)
+                    historicalFrames += frame.copy(
+                        context = frame.context.copy(
+                            paintRange = if (start < range.endExclusive) {
+                                IndexRange(start, range.endExclusive)
+                            } else {
+                                IndexRange.Empty
+                            },
+                        ),
+                        preparedLines = null,
+                        preparedLineTranslationX = 0f,
+                    )
+                    // Lines share index 1 with history to connect the newest segment.
+                    patchFrames += frame.copy(
+                        context = frame.context.copy(
+                            paintRange = IndexRange(0, minOf(if (isLine) 2 else 1, frame.context.state.series.size)),
+                        ),
+                        preparedLines = null,
+                        preparedLineTranslationX = 0f,
+                    )
+                } else if (renderer.cachePolicy == KlineIndicatorCachePolicy.ImmutableInputs) {
+                    customFrames += frame
+                }
+                if (renderer.cachePolicy == KlineIndicatorCachePolicy.Never) dynamicFrames += frame
+            }
+            if (historicalFrames.isNotEmpty()) history[paneId] = historicalFrames
+            if (patchFrames.isNotEmpty()) patch[paneId] = patchFrames
+            if (customFrames.isNotEmpty()) custom[paneId] = customFrames
+            if (dynamicFrames.isNotEmpty()) dynamic[paneId] = dynamicFrames
+        }
+        return KlineSubRenderPlan(history, patch, custom, dynamic).also {
+            source = framesByPane
+            cached = it
+        }
+    }
+}
